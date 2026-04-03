@@ -2,179 +2,118 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Vidu V2 图生视频专业调试</title>
-    <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; background: #f4f7f6; padding: 20px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .control-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:disabled { background: #ccc; }
-        #log { background: #222; color: #0f0; padding: 15px; border-radius: 5px; height: 300px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; font-size: 12px; }
-        video { max-width: 100%; margin-top: 15px; border-radius: 5px; background: #000; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>石膏图转视频 - GitHub部署版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
+<body class="max-w-4xl mx-auto p-6 bg-gray-50">
+    <h1 class="text-2xl font-bold text-center mb-6">🎬 石膏图 → 视频生成工具</h1>
 
-<div class="card">
-    <h3>🖼️ Vidu 图生视频设置</h3>
-    <div class="control-group">
-        <label>选择图片 (将作为视频首帧):</label>
-        <input type="file" id="fileInput" accept="image/*">
+    <div class="bg-white p-6 rounded-lg shadow mb-6">
+        <label class="block mb-2 font-medium">粘贴石膏图公网 URL（HTTPS 格式）：</label>
+        <input 
+            type="text" 
+            id="imgUrl" 
+            placeholder="https://xxx.png"
+            class="w-full p-3 border rounded mb-4"
+        >
+        <button id="start" class="bg-blue-600 text-white px-6 py-3 rounded w-full">
+            生成视频
+        </button>
     </div>
-    <div class="control-group">
-        <label>提示词 (Prompt):</label>
-        <textarea id="prompt" placeholder="描述你希望图片如何动起来...">In an ultra-realistic fashion style, the subject moves naturally with cinematic lighting.</textarea>
-    </div>
-    <div class="control-group" style="display: flex; gap: 10px;">
-        <div style="flex: 1;">
-            <label>模型:</label>
-            <select id="model">
-                <option value="viduq3-pro">viduq3-pro (高质量/带音频)</option>
-                <option value="viduq2-pro">viduq2-pro (细节丰富)</option>
-                <option value="viduq2-turbo">viduq2-turbo (生成快)</option>
-            </select>
-        </div>
-        <div style="flex: 1;">
-            <label>分辨率:</label>
-            <select id="resolution">
-                <option value="1080p">1080p</option>
-                <option value="720p" selected>720p</option>
-                <option value="540p">540p</option>
-            </select>
-        </div>
-        <div style="flex: 1;">
-            <label>时长 (1-16s):</label>
-            <input type="number" id="duration" value="5" min="1" max="16">
-        </div>
-    </div>
-    <button id="startBtn">🎬 开始转换视频</button>
-</div>
 
-<div class="card">
-    <h3>📋 运行日志</h3>
-    <div id="log">等待操作...</div>
-    <div id="resultContainer"></div>
-</div>
+    <div class="bg-white p-6 rounded-lg shadow mb-6">
+        <h3>运行日志</h3>
+        <div id="log" class="h-48 bg-gray-100 p-3 rounded text-sm mt-2 overflow-y-auto"></div>
+    </div>
+
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h3>生成结果</h3>
+        <div id="result" class="mt-2"></div>
+    </div>
 
 <script>
-    const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
-    const BASE_URL = "https://api.302.ai";
-    const CREATE_TASK_URL = `${BASE_URL}/vidu/ent/v2/start-end2video`;
-    const QUERY_TASK_URL = `${BASE_URL}/doubao/drawing/query_task`;
+// 固定配置
+const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
+const VIDEO_API = "https://api.302.ai/doubao/drawing/jimengv30";
+const REQ_KEY = "jimeng_i2v_recamera_v30";
+const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感无水印，无文字，静态图片转动态 平稳无抖动 在每次转动到一个视角时停留1-2秒左右展示一下再进行下步转动 视频运行是不能让人物看着出现变形（不能改变人物特征） 转动中可以眨一眨眼睛动一动头 让视频更生动自然";
+const VIDEO_CONFIG = { duration: 3, ratio: "1:1", fps: 24 };
 
-    const log = (msg) => {
-        const logBox = document.getElementById('log');
-        logBox.innerText += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-        logBox.scrollTop = logBox.scrollHeight;
-    };
+// 日志
+function log(text) {
+    document.getElementById('log').innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
+}
 
-    // 图片转 Base64 (去掉 Data URL 前缀)
-    const getBase64 = (file) => new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = error => reject(error);
-    });
+// 视频生成
+async function start() {
+    const url = document.getElementById('imgUrl').value.trim();
+    if (!url || !url.startsWith('https://')) {
+        alert("请输入有效的 HTTPS 石膏图链接");
+        return;
+    }
 
-    document.getElementById('startBtn').onclick = async () => {
-        const file = document.getElementById('fileInput').files[0];
-        if (!file) return alert("请先选择一张图片！");
+    const btn = document.getElementById('start');
+    btn.disabled = true;
+    btn.textContent = "生成中...";
+    document.getElementById('result').innerHTML = "";
 
-        const btn = document.getElementById('startBtn');
-        btn.disabled = true;
-        document.getElementById('resultContainer').innerHTML = "";
+    try {
+        log("提交视频任务...");
+        const res = await fetch(VIDEO_API, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                req_key: REQ_KEY,
+                prompt: VIDEO_PROMPT,
+                image_urls: [url],
+                duration: VIDEO_CONFIG.duration,
+                ratio: VIDEO_CONFIG.ratio,
+                fps: VIDEO_CONFIG.fps
+            })
+        });
 
-        try {
-            log("正在处理图片...");
-            const base64Data = await getBase64(file);
+        const data = await res.json();
+        log("接口返回：" + JSON.stringify(data));
 
-            const payload = {
-                model: document.getElementById('model').value,
-                images: [base64Data], // 注意：这里必须是数组
-                prompt: document.getElementById('prompt').value,
-                duration: parseInt(document.getElementById('duration').value),
-                resolution: document.getElementById('resolution').value,
-                audio: true // Q3模型建议开启
-            };
-
-            log(`正在创建视频任务 (${payload.model})...`);
-            
-            const response = await fetch(CREATE_TASK_URL, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${API_KEY}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            const data = await response.json();
-            if (!data.task_id) throw new Error(JSON.stringify(data));
-
-            const taskId = data.task_id;
-            log(`✅ 任务创建成功！ID: ${taskId}`);
-
-            // 开始轮询
-            pollTask(taskId);
-
-        } catch (err) {
-            log(`❌ 错误: ${err.message}`);
-            btn.disabled = false;
-        }
-    };
-
-    async function pollTask(taskId) {
-        log("⏳ 正在排队生成中，请稍候 (每 5 秒检查一次)...");
-        
-        for (let i = 0; i < 60; i++) { // 最多等待 5 分钟
-            await new Promise(r => setTimeout(r, 5000));
-            
-            try {
-                const response = await fetch(QUERY_TASK_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${API_KEY}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ task_id: taskId })
+        let videoUrl = data?.data?.[0]?.url;
+        if (!videoUrl && data?.data?.task_id) {
+            log("异步任务生成中，轮询状态...");
+            const taskId = data.data.task_id;
+            for (let i=0; i<20; i++) {
+                await new Promise(r => setTimeout(r, 3000));
+                const poll = await fetch(`https://api.302.ai/doubao/tasks/${taskId}`, {
+                    headers: { Authorization: `Bearer ${API_KEY}` }
                 });
-
-                // 处理 503 报错
-                if (response.status === 503) {
-                    log("⚠️ 服务器繁忙 (503)，继续等待重试...");
-                    continue;
+                const pData = await poll.json();
+                if (pData.data.status === "succeeded") {
+                    videoUrl = pData.data.url;
+                    break;
                 }
-
-                const result = await response.json();
-                const status = result.data?.state || result.state;
-                const videoUrl = result.data?.video_url || result.video_url;
-
-                log(`轮询中... 状态: ${status}`);
-
-                if (videoUrl) {
-                    log("🎉 视频生成成功！正在加载播放器...");
-                    document.getElementById('resultContainer').innerHTML = `
-                        <video controls autoplay loop src="${videoUrl}"></video>
-                        <p><a href="${videoUrl}" target="_blank">🔗 点击下载视频</a></p>
-                    `;
-                    document.getElementById('startBtn').disabled = false;
-                    return;
-                }
-
-                if (status === "failed") {
-                    throw new Error("生成失败，可能是内容不合规或参数错误。");
-                }
-
-            } catch (err) {
-                log(`⚠️ 轮询波动: ${err.message}`);
+                if (pData.data.status === "failed") throw new Error("任务失败");
             }
         }
-        log("❌ 任务轮询超时，请稍后手动查询。");
-        document.getElementById('startBtn').disabled = false;
-    }
-</script>
 
+        if (!videoUrl) throw new Error("未获取到视频地址");
+
+        document.getElementById('result').innerHTML = `
+            <video controls class="w-full rounded"><source src="${videoUrl}" type="video/mp4"></video>
+            <p class="mt-2"><a href="${videoUrl}" target="_blank" class="text-blue-500">打开视频</a></p>
+        `;
+        log("✅ 生成完成！");
+    } catch (e) {
+        log("❌ 错误：" + e.message);
+        document.getElementById('result').innerHTML = `<p class="text-red-500">失败：${e.message}</p>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "生成视频";
+    }
+}
+
+document.getElementById('start').onclick = start;
+</script>
 </body>
 </html>
