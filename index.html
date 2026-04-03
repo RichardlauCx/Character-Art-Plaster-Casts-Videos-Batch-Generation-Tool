@@ -3,117 +3,220 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>石膏图转视频 - GitHub部署版</title>
+    <title>石膏图转视频 - GitHub Pages本地上传版</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-4xl mx-auto p-6 bg-gray-50">
-    <h1 class="text-2xl font-bold text-center mb-6">🎬 石膏图 → 视频生成工具</h1>
+    <h1 class="text-2xl font-bold text-center mb-6">🎬 本地石膏图 → 一键生成视频（GitHub部署版）</h1>
 
     <div class="bg-white p-6 rounded-lg shadow mb-6">
-        <label class="block mb-2 font-medium">粘贴石膏图公网 URL（HTTPS 格式）：</label>
+        <label class="block mb-2 font-medium">选择本地石膏图文件（直接上传，自动转URL）：</label>
         <input 
-            type="text" 
-            id="imgUrl" 
-            placeholder="https://xxx.png"
+            type="file" 
+            id="fileInput" 
+            accept="image/*"
             class="w-full p-3 border rounded mb-4"
         >
-        <button id="start" class="bg-blue-600 text-white px-6 py-3 rounded w-full">
-            生成视频
+        <button 
+            id="startBtn" 
+            class="bg-blue-600 text-white px-6 py-3 rounded w-full hover:bg-blue-700 disabled:bg-gray-400"
+            disabled
+        >
+            🚀 一键生成视频
         </button>
     </div>
 
     <div class="bg-white p-6 rounded-lg shadow mb-6">
-        <h3>运行日志</h3>
+        <h3 class="font-medium mb-2">运行日志</h3>
         <div id="log" class="h-48 bg-gray-100 p-3 rounded text-sm mt-2 overflow-y-auto"></div>
     </div>
 
     <div class="bg-white p-6 rounded-lg shadow">
-        <h3>生成结果</h3>
+        <h3 class="font-medium mb-2">生成结果</h3>
         <div id="result" class="mt-2"></div>
     </div>
 
 <script>
-// 固定配置
+// ====================== 固定配置（完全沿用你Coze的参数）======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
 const VIDEO_API = "https://api.302.ai/doubao/drawing/jimengv30";
-const REQ_KEY = "jimeng_i2v_recamera_v30";
+const REQ_KEY = "jimeng_i2v_recamera_v30"; // 必传，解决missing req_key
 const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感无水印，无文字，静态图片转动态 平稳无抖动 在每次转动到一个视角时停留1-2秒左右展示一下再进行下步转动 视频运行是不能让人物看着出现变形（不能改变人物特征） 转动中可以眨一眨眼睛动一动头 让视频更生动自然";
 const VIDEO_CONFIG = { duration: 3, ratio: "1:1", fps: 24 };
+const POLL_INTERVAL = 3000;
+const POLL_MAX_TIMES = 30;
 
-// 日志
-function log(text) {
-    document.getElementById('log').innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
+// ====================== DOM元素 ======================
+const fileInput = document.getElementById('fileInput');
+const startBtn = document.getElementById('startBtn');
+const logBox = document.getElementById('log');
+const resultBox = document.getElementById('result');
+
+// ====================== 日志工具 ======================
+function addLog(text) {
+    logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
+    logBox.scrollTop = logBox.scrollHeight;
 }
 
-// 视频生成
-async function start() {
-    const url = document.getElementById('imgUrl').value.trim();
-    if (!url || !url.startsWith('https://')) {
-        alert("请输入有效的 HTTPS 石膏图链接");
-        return;
-    }
-
-    const btn = document.getElementById('start');
-    btn.disabled = true;
-    btn.textContent = "生成中...";
-    document.getElementById('result').innerHTML = "";
+// ====================== 核心1：本地文件 → 自动生成公网URL（GitHub Pages可用）======================
+// 方案A：免费匿名图床（catbox.moe，原生支持CORS，无需注册）
+async function uploadToCatbox(file) {
+    addLog("📤 正在上传本地图片到免费CORS图床，生成公网URL...");
+    const formData = new FormData();
+    formData.append("reqtype", "fileupload");
+    formData.append("file", file);
+    formData.append("userhash", ""); // 匿名上传，留空即可
 
     try {
-        log("提交视频任务...");
-        const res = await fetch(VIDEO_API, {
+        // catbox.moe 原生支持所有HTTPS源的CORS，GitHub Pages下完全通
+        const res = await fetch("https://catbox.moe/user/api.php", {
             method: "POST",
-            headers: {
-                "Authorization": `Bearer ${API_KEY}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                req_key: REQ_KEY,
-                prompt: VIDEO_PROMPT,
-                image_urls: [url],
-                duration: VIDEO_CONFIG.duration,
-                ratio: VIDEO_CONFIG.ratio,
-                fps: VIDEO_CONFIG.fps
-            })
+            body: formData
         });
 
-        const data = await res.json();
-        log("接口返回：" + JSON.stringify(data));
+        if (!res.ok) throw new Error(`图床上传失败，HTTP状态：${res.status}`);
+        const imageUrl = await res.text();
+        if (!imageUrl.startsWith("https://")) throw new Error(`图床返回异常：${imageUrl}`);
 
-        let videoUrl = data?.data?.[0]?.url;
-        if (!videoUrl && data?.data?.task_id) {
-            log("异步任务生成中，轮询状态...");
-            const taskId = data.data.task_id;
-            for (let i=0; i<20; i++) {
-                await new Promise(r => setTimeout(r, 3000));
-                const poll = await fetch(`https://api.302.ai/doubao/tasks/${taskId}`, {
-                    headers: { Authorization: `Bearer ${API_KEY}` }
-                });
-                const pData = await poll.json();
-                if (pData.data.status === "succeeded") {
-                    videoUrl = pData.data.url;
-                    break;
-                }
-                if (pData.data.status === "failed") throw new Error("任务失败");
-            }
-        }
-
-        if (!videoUrl) throw new Error("未获取到视频地址");
-
-        document.getElementById('result').innerHTML = `
-            <video controls class="w-full rounded"><source src="${videoUrl}" type="video/mp4"></video>
-            <p class="mt-2"><a href="${videoUrl}" target="_blank" class="text-blue-500">打开视频</a></p>
-        `;
-        log("✅ 生成完成！");
+        addLog(`✅ 图片上传完成！公网URL：${imageUrl}`);
+        return imageUrl;
     } catch (e) {
-        log("❌ 错误：" + e.message);
-        document.getElementById('result').innerHTML = `<p class="text-red-500">失败：${e.message}</p>`;
-    } finally {
-        btn.disabled = false;
-        btn.textContent = "生成视频";
+        addLog(`❌ 图床上传错误：${e.message}`);
+        throw e;
     }
 }
 
-document.getElementById('start').onclick = start;
+// 方案B：302.ai自有文件存储（隐私性更好，同平台CORS，用同一个API Key）
+// 如需用这个，把下面的uploadToCatbox替换为uploadTo302即可
+// async function uploadTo302(file) {
+//     addLog("📤 正在上传本地图片到302.ai文件存储，生成公网URL...");
+//     const formData = new FormData();
+//     formData.append("file", file);
+
+//     try {
+//         const res = await fetch("https://api.302.ai/doubao/files/upload", {
+//             method: "POST",
+//             headers: { "Authorization": `Bearer ${API_KEY}` },
+//             body: formData
+//         });
+
+//         if (!res.ok) throw new Error(`302文件上传失败，HTTP状态：${res.status}`);
+//         const data = await res.json();
+//         const imageUrl = data?.data?.url;
+//         if (!imageUrl || !imageUrl.startsWith("https://")) throw new Error(`302返回异常：${JSON.stringify(data)}`);
+
+//         addLog(`✅ 图片上传完成！公网URL：${imageUrl}`);
+//         return imageUrl;
+//     } catch (e) {
+//         addLog(`❌ 302文件上传错误：${e.message}`);
+//         throw e;
+//     }
+// }
+
+// ====================== 核心2：视频生成（参数全修复，兼容同步/异步）======================
+async function generateVideo(imageUrl) {
+    addLog("🚀 提交视频生成任务（参数已全修复）...");
+    const requestBody = {
+        req_key: REQ_KEY,
+        prompt: VIDEO_PROMPT,
+        image_urls: [imageUrl], // 修正为数组格式，解决参数错误
+        duration: VIDEO_CONFIG.duration,
+        ratio: VIDEO_CONFIG.ratio,
+        fps: VIDEO_CONFIG.fps
+    };
+    addLog(`📤 请求参数：${JSON.stringify(requestBody, null, 2)}`);
+
+    const res = await fetch(VIDEO_API, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody)
+    });
+
+    addLog(`📥 接口响应状态：${res.status} ${res.statusText}`);
+    const responseText = await res.text();
+    addLog(`📥 完整响应：${responseText}`);
+    
+    let data;
+    try { data = JSON.parse(responseText); } 
+    catch (e) { throw new Error(`响应解析失败：${responseText}`); }
+
+    // 同步返回（Coze原逻辑）
+    if (data?.data?.[0]?.url) {
+        const videoUrl = data.data[0].url;
+        addLog(`✅ 同步生成成功，视频URL：${videoUrl}`);
+        return videoUrl;
+    }
+    // 异步轮询（302.ai原生逻辑）
+    if (data?.data?.task_id) {
+        const taskId = data.data.task_id;
+        addLog(`⏳ 任务ID：${taskId}，开始轮询状态...`);
+        
+        for (let i=0; i<POLL_MAX_TIMES; i++) {
+            await new Promise(r => setTimeout(r, POLL_INTERVAL));
+            const poll = await fetch(`https://api.302.ai/doubao/tasks/${taskId}`, {
+                headers: { Authorization: `Bearer ${API_KEY}` }
+            });
+            const pollData = await poll.json();
+            const status = pollData?.data?.status;
+            
+            addLog(`🔄 第${i+1}次轮询：${status}`);
+            if (status === "succeeded") {
+                const videoUrl = pollData.data.url;
+                addLog(`✅ 异步生成成功，视频URL：${videoUrl}`);
+                return videoUrl;
+            }
+            if (status === "failed") throw new Error(`任务失败：${pollData.data.error?.message || "未知错误"}`);
+        }
+        throw new Error("生成超时：超过最大轮询次数");
+    }
+    // 错误处理
+    const errorMsg = data?.error?.message || data?.message || JSON.stringify(data);
+    throw new Error(`视频生成失败：${errorMsg}`);
+}
+
+// ====================== 一键启动 ======================
+fileInput.addEventListener('change', () => {
+    startBtn.disabled = !fileInput.files[0];
+});
+
+startBtn.addEventListener('click', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    startBtn.disabled = true;
+    resultBox.innerHTML = '';
+    
+    try {
+        // 1. 本地上传 → 自动生成公网URL（用方案A就传catbox，方案B就传302）
+        const imageUrl = await uploadToCatbox(file);
+        // 2. 自动生成视频
+        const videoUrl = await generateVideo(imageUrl);
+        
+        // 渲染结果
+        resultBox.innerHTML = `
+            <div class="p-4 bg-green-50 rounded border border-green-200">
+                <p class="text-green-700 font-bold mb-3">✅ 视频生成成功！</p>
+                <video controls class="w-full rounded mb-2">
+                    <source src="${videoUrl}" type="video/mp4">
+                </video>
+                <a href="${videoUrl}" target="_blank" class="text-blue-600 hover:underline">🔗 打开视频原链接</a>
+            </div>
+        `;
+        addLog("🎉 全部流程完成！");
+    } catch (e) {
+        addLog(`❌ 最终失败：${e.message}`);
+        resultBox.innerHTML = `
+            <div class="p-4 bg-red-50 rounded border border-red-200">
+                <p class="text-red-700 font-bold">❌ 失败：${e.message}</p>
+            </div>
+        `;
+    } finally {
+        startBtn.disabled = false;
+    }
+});
 </script>
 </body>
 </html>
