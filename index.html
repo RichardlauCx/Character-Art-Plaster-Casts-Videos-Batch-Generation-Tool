@@ -54,16 +54,16 @@
 </div>
 
 <script>
-// ====================== 官方接口 100% 对齐 + 国内中转修复400 ======================
+// ====================== 官方接口【100%对齐你提供的3份文档】======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
-// 🔥 修复1：切换为国内中转上传接口（解决400 Bad Request）
-const UPLOAD_API = "https://api.302ai.cn/302/upload-file";
-// 图生图：Seedream 5.0（你提供的文档）
-const IMG2IMG_API = "https://api.302ai.cn/doubao/images/generations";
-// 图生视频：即梦3.0Pro
-const VIDEO_API = "https://api.302ai.cn/doubao/drawing/jimeng_ti2v_v30_pro";
-// 视频查询：即梦3.0Pro专用查询
-const QUERY_API = "https://api.302ai.cn/doubao/drawing/jimeng_ti2v_v30_pro_result";
+// 1. 文件上传（你最新提供：Upload-File 官方接口）
+const UPLOAD_API = "https://api.302.ai/302/upload-file";
+// 2. 图生图（Seedream 5.0 官方接口）
+const IMG2IMG_API = "https://api.302.ai/doubao/images/generations";
+// 3. 图生视频（即梦3.0Pro 官方接口）
+const VIDEO_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro";
+// 4. 视频查询（即梦3.0Pro 专用查询接口）
+const QUERY_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro_result";
 
 // ====================== 官方参数配置 ======================
 const PLASTER_PROMPT = "纯白石膏雕塑质感，细腻纹理，柔和光影，高清细节，极简艺术风格，人物石膏像，无水印";
@@ -80,13 +80,13 @@ const resetBtn = document.getElementById("resetBtn");
 const logBox = document.getElementById("log");
 const taskListDom = document.getElementById("taskList");
 
-// 日志
+// 日志输出
 function log(text) {
     logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
     logBox.scrollTop = logBox.scrollHeight;
 }
 
-// 重置
+// 重置任务
 function resetAll() {
     taskList = [];
     fileInput.value = "";
@@ -106,7 +106,7 @@ function getStatusText(status) {
     return statusMap[status] || { text: "未知状态", color: "text-gray-500" };
 }
 
-// 渲染卡片
+// 渲染任务卡片
 function renderTaskList() {
     taskListDom.innerHTML = "";
     taskList.forEach((task, index) => {
@@ -145,27 +145,35 @@ function renderTaskList() {
     });
 }
 
-// ====================== 🔥 修复2：简化上传逻辑，彻底解决400 ======================
+// ====================== 【核心修复】严格按Upload-File官方文档写上传逻辑 ======================
 async function uploadFile(file) {
+    log("📤 严格按官方文档上传文件...");
+    // 仅按文档要求：FormData 只包含 file 字段
+    const formData = new FormData();
+    formData.append("file", file);
+
     try {
-        log("📤 正在上传图片到国内中转接口...");
-        const form = new FormData();
-        form.append("file", file);
-        
         const res = await fetch(UPLOAD_API, {
             method: "POST",
+            // 仅按文档要求：只传 Authorization 请求头
             headers: {
                 "Authorization": `Bearer ${API_KEY}`
-                // 🔥 关键：不手动加Content-Type，让浏览器自动生成，避免400
             },
-            body: form
+            // 不手动设置 Content-Type，由浏览器自动生成 multipart/form-data
+            body: formData
         });
 
-        if (!res.ok) throw new Error(`上传接口报错：${res.status}`);
-        const data = await res.json();
+        // 打印完整响应，方便排查
+        const respText = await res.text();
+        log(`上传原始响应：${respText}`);
         
-        if (data.code !== 200) throw new Error(data.message || "上传失败");
-        log("✅ 图片上传成功");
+        const data = JSON.parse(respText);
+        // 按文档校验：code=200 且 data 存在
+        if (data.code !== 200 || !data.data) {
+            throw new Error(data.message || "上传失败");
+        }
+
+        log("✅ 文件上传成功，获取官方URL");
         return data.data;
     } catch (e) {
         log(`❌ 上传失败：${e.message}`);
@@ -173,7 +181,7 @@ async function uploadFile(file) {
     }
 }
 
-// ====================== 图生图：Seedream 5.0（无重试，一次成败） ======================
+// ====================== 图生图：Seedream 5.0（严格按文档，无重试） ======================
 async function generatePlasterImage(originUrl) {
     log("🎨 调用Seedream5.0生成石膏质感图...");
     const res = await fetch(IMG2IMG_API, {
@@ -203,7 +211,7 @@ async function generatePlasterImage(originUrl) {
     return plasterUrl;
 }
 
-// ====================== 提交视频任务 ======================
+// ====================== 提交视频任务（即梦3.0Pro） ======================
 async function createVideoTask(plasterUrl) {
     const res = await fetch(VIDEO_API, {
         method: "POST",
@@ -221,7 +229,7 @@ async function createVideoTask(plasterUrl) {
     return data?.data?.task_id;
 }
 
-// ====================== 批量全流程 ======================
+// ====================== 批量全流程任务 ======================
 async function submitBatchTasks() {
     const files = Array.from(fileInput.files);
     if (!files.length) { alert("请选择图片"); return; }
@@ -233,13 +241,17 @@ async function submitBatchTasks() {
     }));
     renderTaskList();
 
+    // 串行批量处理，一次成败，无重试
     for (let i = 0; i < taskList.length; i++) {
         try {
             log(`===== 处理第${i+1}张：${taskList[i].fileName} =====`);
+            // 1. 官方上传
             taskList[i].originUrl = await uploadFile(taskList[i].file);
+            // 2. 官方图生图
             taskList[i].plasterUrl = await generatePlasterImage(taskList[i].originUrl);
             taskList[i].status = "plaster_done";
             renderTaskList();
+            // 3. 官方视频任务
             taskList[i].taskId = await createVideoTask(taskList[i].plasterUrl);
             taskList[i].status = "in_queue";
             log(`第${i+1}张视频任务提交成功：${taskList[i].taskId}`);
@@ -255,7 +267,7 @@ async function submitBatchTasks() {
     log("✅ 批量任务提交完成");
 }
 
-// ====================== 批量查询视频 ======================
+// ====================== 批量查询视频任务 ======================
 async function queryBatchTasks() {
     if (!taskList.length) { alert("暂无任务"); return; }
 
