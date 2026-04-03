@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>石膏图批量转视频（即梦3.0 Pro）</title>
+<title>石膏图批量转视频（即梦3.0 Pro 修复版）</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-5xl mx-auto p-6 bg-gray-50">
@@ -58,7 +58,7 @@ const resetBtn = document.getElementById("resetBtn");
 const logBox = document.getElementById("log");
 const taskListDom = document.getElementById("taskList");
 
-// 日志输出
+// 日志输出（新增状态/URL打印）
 function log(text) {
     logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
     logBox.scrollTop = logBox.scrollHeight;
@@ -72,15 +72,16 @@ function resetAll() {
     logBox.innerHTML = "";
 }
 
-// 渲染任务卡片
+// 渲染任务卡片（修复状态兜底+视频显示逻辑）
 function renderTaskList() {
     taskListDom.innerHTML = "";
     taskList.forEach((task, index) => {
         const card = document.createElement("div");
         card.className = "border rounded p-4 bg-white shadow-sm";
         
-        let statusText = "";
-        let statusColor = "";
+        // 【修复1：状态兜底，避免空白】
+        let statusText = "未知状态";
+        let statusColor = "text-gray-500";
         if(task.status === "pending") {
             statusText = "待查询";
             statusColor = "text-gray-600";
@@ -95,22 +96,25 @@ function renderTaskList() {
             statusColor = "text-red-600";
         }
 
+        // 【修复2：视频URL完整显示+复制按钮】
+        const videoHtml = task.videoUrl ? `
+            <div class="mt-3 space-y-2">
+                <video controls class="w-full h-36 object-cover rounded">
+                    <source src="${task.videoUrl}" type="video/mp4">
+                </video>
+                <p class="text-xs text-gray-500 break-all">视频URL：${task.videoUrl}</p>
+                <button onclick="navigator.clipboard.writeText('${task.videoUrl}')" 
+                        class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200">
+                    复制链接
+                </button>
+            </div>
+        ` : "";
+
         card.innerHTML = `
             <p class="text-sm font-medium mb-1">文件：${task.fileName}</p>
             <p class="text-xs mb-1 ${statusColor}">状态：${statusText}</p>
             <p class="text-xs text-gray-500 break-all mb-2">TaskID：${task.taskId || "未生成"}</p>
-            ${task.videoUrl ? `
-            <div class="mt-2">
-                <video controls class="w-full h-32 object-cover rounded mb-1">
-                    <source src="${task.videoUrl}" type="video/mp4">
-                </video>
-                <p class="text-xs text-blue-600 break-all">URL：${task.videoUrl}</p>
-                <button onclick="navigator.clipboard.writeText('${task.videoUrl}')" 
-                        class="text-xs bg-gray-100 px-2 py-1 rounded mt-1">
-                    复制链接
-                </button>
-            </div>
-            ` : ""}
+            ${videoHtml}
         `;
         taskListDom.appendChild(card);
     });
@@ -173,8 +177,8 @@ async function submitBatchTasks() {
             const imgUrl = await uploadFile(taskList[i].file);
             const taskId = await createSingleTask(imgUrl);
             taskList[i].taskId = taskId;
-            taskList[i].status = "processing";
-            log(`第${i+1}张任务提交成功：${taskId}`);
+            taskList[i].status = "processing"; // 提交后设为生成中
+            log(`第${i+1}张任务提交成功：${taskId}，状态：生成中`);
             renderTaskList();
         } catch(e) {
             taskList[i].status = "failed";
@@ -200,7 +204,7 @@ async function querySingleTask(taskId) {
     return await res.json();
 }
 
-// ====================== 5. 批量查询所有任务 ======================
+// ====================== 5. 批量查询所有任务（核心修复）======================
 async function queryBatchTasks() {
     if(taskList.length === 0) {
         alert("暂无任务可查询");
@@ -215,13 +219,26 @@ async function queryBatchTasks() {
         try {
             log(`查询第${i+1}张任务：${task.taskId}`);
             const res = await querySingleTask(task.taskId);
-            const status = res.data.status;
-            task.status = status;
-
-            if(status === "succeeded") {
-                task.videoUrl = res.data.video_url;
-                log(`第${i+1}张任务完成：${task.videoUrl}`);
+            
+            // 【修复3：防御性判断，避免空值覆盖】
+            if (!res?.data) {
+                log(`第${i+1}张任务查询失败：响应数据为空`);
+                continue;
             }
+
+            // 仅当status有值时才更新，保留原状态
+            const status = res.data.status;
+            if (status) {
+                task.status = status;
+                log(`第${i+1}张任务状态更新为：${status}`);
+            }
+
+            // 【修复4：仅当status为succeeded且video_url存在时赋值】
+            if (status === "succeeded" && res.data.video_url) {
+                task.videoUrl = res.data.video_url;
+                log(`第${i+1}张任务完成！视频URL：${task.videoUrl}`);
+            }
+
             renderTaskList();
         } catch(e) {
             task.status = "failed";
