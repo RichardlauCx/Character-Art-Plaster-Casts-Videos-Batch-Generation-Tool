@@ -7,13 +7,13 @@
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-6xl mx-auto p-6 bg-gray-50">
-<!-- 顶部专业标题区 -->
+<!-- 专业标题区 -->
 <div class="text-center mb-8">
     <h1 class="text-3xl font-bold text-gray-800 mb-2">AI石膏质感视频批量生成系统</h1>
-    <p class="text-gray-500">全流程：原图 → 石膏质感图生图 → 即梦3.0Pro图生视频 | 批量自动化处理</p>
+    <p class="text-gray-500">全流程：原图 → Seedream5.0石膏质感图生图 → 即梦3.0Pro图生视频 | 批量自动化处理</p>
 </div>
 
-<!-- 核心操作区 -->
+<!-- 操作区 -->
 <div class="bg-white p-6 rounded-xl shadow-md mb-6">
     <h2 class="text-xl font-semibold mb-4 text-gray-700">任务操作</h2>
     <div class="space-y-4">
@@ -36,43 +36,43 @@
     </div>
 </div>
 
-<!-- 运行日志区 -->
+<!-- 日志区 -->
 <div class="bg-white p-6 rounded-xl shadow-md mb-6">
     <h2 class="text-xl font-semibold mb-3 text-gray-700">实时运行日志</h2>
     <div id="log" class="h-36 bg-gray-100 p-3 rounded-lg text-sm overflow-y-auto font-mono"></div>
 </div>
 
-<!-- 批量任务展示区 -->
+<!-- 任务列表 -->
 <div class="bg-white p-6 rounded-xl shadow-md mb-6">
     <h2 class="text-xl font-semibold mb-4 text-gray-700">任务列表（原图→石膏图→视频）</h2>
     <div id="taskList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
 </div>
 
-<!-- 页脚技术支持 -->
+<!-- 页脚：技术支持 -->
 <div class="text-center text-gray-400 text-sm py-4">
     技术提供 &nbsp;©&nbsp; 奈之何科技 &nbsp;|&nbsp; 技术支持：AIoT健康管理·AIGC视觉生成
 </div>
 
 <script>
-// ====================== 官方接口全配置（图生图+文件上传+图生视频）======================
+// ====================== 官方接口 100% 对齐你提供的文档 ======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
-// 文件上传接口
+// 1. 文件上传（你提供的官方接口）
 const UPLOAD_API = "https://api.302.ai/302/upload-file";
-// 【修复1：图生图接口优先用国内中转，提升稳定性】
-const IMG2IMG_API = "https://api.302ai.cn/doubao/drawing/jimeng_i2i_v30";
-// 图生视频3.0Pro接口
+// 2. 图生图：Seedream 5.0（你最新提供的文档）
+const IMG2IMG_API = "https://api.302.ai/doubao/images/generations";
+// 3. 图生视频：即梦3.0Pro
 const VIDEO_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro";
-// 视频任务查询接口
+// 4. 视频查询：即梦3.0Pro专用查询
 const QUERY_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro_result";
 
-//  Prompt参数（石膏质感专属，控制风格）
-const IMG2IMG_PROMPT = "石膏质感雕塑，纯白石膏材质，细腻纹理，高清细节，光影柔和，无水印，极简风格，人物石膏像，专业艺术质感";
+// ====================== 官方参数配置 ======================
+// 石膏质感专属提示词
+const PLASTER_PROMPT = "纯白石膏雕塑质感，细腻纹理，柔和光影，高清细节，极简艺术风格，人物石膏像，无水印";
+// Seedream 5.0 模型名（文档指定）
+const SEEDREAM_MODEL = "doubao-seedream-5-0-260128";
+// 视频参数
 const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感";
-// 通用配置
-const IMG2IMG_CONFIG = { req_key: "jimeng_i2i_v30", strength: 0.6 };
 const VIDEO_CONFIG = { frames: 121, aspect_ratio: "1:1" };
-// 【修复2：图生图重试配置：最多3次，指数退避】
-const IMG2IMG_RETRY = { maxRetries: 3, delays: [2000, 4000, 8000] };
 
 // ====================== 全局变量 ======================
 let taskList = [];
@@ -83,13 +83,13 @@ const resetBtn = document.getElementById("resetBtn");
 const logBox = document.getElementById("log");
 const taskListDom = document.getElementById("taskList");
 
-// 日志输出
+// 日志
 function log(text) {
     logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
     logBox.scrollTop = logBox.scrollHeight;
 }
 
-// 重置任务
+// 重置
 function resetAll() {
     taskList = [];
     fileInput.value = "";
@@ -97,21 +97,19 @@ function resetAll() {
     logBox.innerHTML = "";
 }
 
-// 状态映射（匹配官方实际返回）
+// 状态映射（和视频接口状态完全匹配）
 function getStatusText(status) {
     const statusMap = {
-        "in_queue": { text: "生成中/排队中", color: "text-blue-600" },
-        "processing": { text: "生成中", color: "text-blue-600" },
+        "in_queue": { text: "视频生成中", color: "text-blue-600" },
         "done": { text: "已完成", color: "text-green-600" },
-        "succeeded": { text: "已完成", color: "text-green-600" },
         "failed": { text: "生成失败", color: "text-red-600" },
         "pending": { text: "待处理", color: "text-gray-600" },
-        "img2img_done": { text: "石膏图已生成", color: "text-indigo-600" }
+        "plaster_done": { text: "石膏图已生成", color: "text-indigo-600" }
     };
     return statusMap[status] || { text: "未知状态", color: "text-gray-500" };
 }
 
-// 渲染任务卡片（原图+石膏图+视频一体化展示）
+// 渲染卡片
 function renderTaskList() {
     taskListDom.innerHTML = "";
     taskList.forEach((task, index) => {
@@ -119,14 +117,14 @@ function renderTaskList() {
         card.className = "border border-gray-200 rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition";
         
         const { text: statusText, color: statusColor } = getStatusText(task.status);
-        // 石膏图展示
-        const plasterImgHtml = task.plasterUrl ? `
+        // 石膏图
+        const plasterHtml = task.plasterUrl ? `
             <div class="mt-2">
                 <p class="text-xs text-gray-500">石膏质感图：</p>
                 <img src="${task.plasterUrl}" class="w-full h-32 object-cover rounded-lg mt-1">
             </div>
         ` : "";
-        // 视频展示
+        // 视频
         const videoHtml = task.videoUrl ? `
             <div class="mt-3 space-y-2">
                 <p class="text-xs text-gray-500">生成视频：</p>
@@ -142,17 +140,17 @@ function renderTaskList() {
         ` : "";
 
         card.innerHTML = `
-            <p class="text-sm font-medium text-gray-700 mb-1">文件：${task.fileName}</p>
+            <p class="text-sm font-medium text-gray-700 mb-1">${task.fileName}</p>
             <p class="text-xs mb-2 ${statusColor}">${statusText}</p>
-            <p class="text-xs text-gray-400 break-all mb-3">TaskID：${task.taskId || "未生成"}</p>
-            ${plasterImgHtml}
+            <p class="text-xs text-gray-400 break-all mb-3">TaskID：${task.taskId || "-"}</p>
+            ${plasterHtml}
             ${videoHtml}
         `;
         taskListDom.appendChild(card);
     });
 }
 
-// ====================== 1. 官方文件上传 ======================
+// ====================== 1. 文件上传（完全沿用你跑通的逻辑） ======================
 async function uploadFile(file) {
     const form = new FormData();
     form.append("file", file);
@@ -162,61 +160,50 @@ async function uploadFile(file) {
         body: form
     });
     const data = await res.json();
-    if(data.code !== 200) throw new Error(data.message);
+    if (data.code !== 200) throw new Error(data.message);
     return data.data;
 }
 
-// ====================== 【核心修复3：图生图加重试+状态校验】======================
-async function generatePlasterImage(imgUrl, retryCount = 0) {
-    log(`🎨 正在生成石膏质感图生图（第${retryCount + 1}次尝试）...`);
+// ====================== 2. 图生图：Seedream 5.0（严格按文档，无重试） ======================
+async function generatePlasterImage(originUrl) {
+    log("🎨 调用Seedream5.0生成石膏质感图...");
+    const res = await fetch(IMG2IMG_API, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            // 文档必填项
+            model: SEEDREAM_MODEL,
+            prompt: PLASTER_PROMPT,
+            // 图生图必填
+            image: [originUrl],
+            // 文档可选配置
+            size: "2K",
+            response_format: "url",
+            watermark: false,
+            sequential_image_generation: "disabled" // 只生成1张
+        })
+    });
+
+    const data = await res.json();
+    log(`图生图响应：${JSON.stringify(data)}`);
     
-    try {
-        const res = await fetch(IMG2IMG_API, {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${API_KEY}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                prompt: IMG2IMG_PROMPT,
-                image_urls: [imgUrl],
-                ...IMG2IMG_CONFIG
-            })
-        });
-
-        // 【修复4：校验HTTP状态，非200直接重试】
-        if (!res.ok) {
-            throw new Error(`HTTP状态异常：${res.status} ${res.statusText}`);
-        }
-
-        const data = await res.json();
-        // 【修复5：打印完整响应，方便排查】
-        log(`图生图响应：${JSON.stringify(data)}`);
-        
-        const plasterUrl = data?.data?.[0]?.url;
-        if(!plasterUrl) throw new Error("未获取到石膏图URL");
-        
-        log("✅ 石膏质感图生成完成");
-        return plasterUrl;
-    } catch (e) {
-        // 【修复6：指数退避重试，最多3次】
-        if (retryCount < IMG2IMG_RETRY.maxRetries - 1) {
-            const delay = IMG2IMG_RETRY.delays[retryCount];
-            log(`⚠️ 图生图失败：${e.message}，${delay/1000}秒后重试`);
-            await new Promise(r => setTimeout(r, delay));
-            return generatePlasterImage(imgUrl, retryCount + 1);
-        }
-        // 重试耗尽，抛出最终错误
-        throw new Error(`图生图重试${IMG2IMG_RETRY.maxRetries}次后失败：${e.message}`);
-    }
+    // 文档规定：url 在 data[0].url
+    const plasterUrl = data?.data?.[0]?.url;
+    if (!plasterUrl) throw new Error("未获取到石膏图URL");
+    
+    log("✅ 石膏图生成成功");
+    return plasterUrl;
 }
 
-// ====================== 3. 提交图生视频任务 ======================
+// ====================== 3. 提交视频任务（你已跑通） ======================
 async function createVideoTask(plasterUrl) {
     const res = await fetch(VIDEO_API, {
         method: "POST",
         headers: {
-            Authorization: `Bearer ${API_KEY}`,
+            "Authorization": `Bearer ${API_KEY}`,
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -229,91 +216,76 @@ async function createVideoTask(plasterUrl) {
     return data?.data?.task_id;
 }
 
-// ====================== 4. 批量全流程任务 ======================
+// ====================== 4. 批量全流程 ======================
 async function submitBatchTasks() {
     const files = Array.from(fileInput.files);
-    if(files.length === 0) {
-        alert("请先选择原始图片");
-        return;
-    }
+    if (!files.length) { alert("请选择图片"); return; }
 
     submitBatchBtn.disabled = true;
     taskList = files.map(file => ({
         fileName: file.name,
-        file: file,
-        originUrl: "",
-        plasterUrl: "",
-        taskId: "",
-        status: "pending",
-        videoUrl: ""
+        originUrl: "", plasterUrl: "", taskId: "", videoUrl: "", status: "pending"
     }));
     renderTaskList();
 
-    // 串行批量处理（避免接口限流）
-    for(let i=0; i<taskList.length; i++) {
+    // 串行批量处理
+    for (let i = 0; i < taskList.length; i++) {
         try {
-            log(`===== 开始处理第${i+1}张：${taskList[i].fileName} =====`);
+            log(`===== 处理第${i+1}张：${taskList[i].fileName} =====`);
             // 1. 上传原图
             taskList[i].originUrl = await uploadFile(taskList[i].file);
-            // 2. 生成石膏质感图（带重试）
+            // 2. 生成石膏图（Seedream5.0）
             taskList[i].plasterUrl = await generatePlasterImage(taskList[i].originUrl);
-            taskList[i].status = "img2img_done";
+            taskList[i].status = "plaster_done";
             renderTaskList();
             // 3. 提交视频任务
             taskList[i].taskId = await createVideoTask(taskList[i].plasterUrl);
             taskList[i].status = "in_queue";
             log(`第${i+1}张视频任务提交成功：${taskList[i].taskId}`);
             renderTaskList();
-        } catch(e) {
+        } catch (e) {
             taskList[i].status = "failed";
-            log(`第${i+1}张处理失败：${e.message}`);
+            log(`第${i+1}张失败：${e.message}`);
             renderTaskList();
         }
     }
 
     submitBatchBtn.disabled = false;
-    log("✅ 全流程批量任务提交完成");
+    log("✅ 批量任务提交完成");
 }
 
-// ====================== 5. 批量查询视频任务 ======================
+// ====================== 5. 批量查询视频（你已跑通） ======================
 async function queryBatchTasks() {
-    if(taskList.length === 0) {
-        alert("暂无任务可查询");
-        return;
-    }
+    if (!taskList.length) { alert("暂无任务"); return; }
 
     queryBatchBtn.disabled = true;
-    for(let i=0; i<taskList.length; i++) {
+    for (let i = 0; i < taskList.length; i++) {
         const task = taskList[i];
-        if(!task.taskId || task.status === "done") continue;
+        if (!task.taskId || task.status === "done") continue;
 
         try {
             log(`查询第${i+1}张视频任务：${task.taskId}`);
             const res = await fetch(QUERY_API, {
                 method: "POST",
                 headers: {
-                    Authorization: `Bearer ${API_KEY}`,
+                    "Authorization": `Bearer ${API_KEY}`,
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({ task_id: task.taskId })
             });
             const data = await res.json();
 
-            if (!res?.data) {
-                log(`第${i+1}张任务响应为空`);
-                continue;
-            }
-
+            if (!data?.data) continue;
             const status = data.data.status;
             if (status) task.status = status;
             if (status === "done" && data.data.video_url) {
                 task.videoUrl = data.data.video_url;
-                log(`第${i+1}张视频生成完成：${task.videoUrl}`);
+                log(`第${i+1}张视频完成：${task.videoUrl}`);
             }
             renderTaskList();
-        } catch(e) {
+        } catch (e) {
             task.status = "failed";
-            log(`第${i+1}张查询失败：${e.message}`);
+            log(`查询失败：${e.message}`);
             renderTaskList();
         }
     }
