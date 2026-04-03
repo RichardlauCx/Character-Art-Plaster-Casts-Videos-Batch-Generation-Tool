@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>石膏图转视频 - GitHub Pages本地上传版</title>
+    <title>本地石膏图→一键生成视频（302自有存储·GitHub部署版）</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-4xl mx-auto p-6 bg-gray-50">
-    <h1 class="text-2xl font-bold text-center mb-6">🎬 本地石膏图 → 一键生成视频（GitHub部署版）</h1>
+    <h1 class="text-2xl font-bold text-center mb-6">🎬 本地石膏图 → 一键生成视频（302自有存储版）</h1>
 
     <div class="bg-white p-6 rounded-lg shadow mb-6">
         <label class="block mb-2 font-medium">选择本地石膏图文件（直接上传，自动转URL）：</label>
@@ -58,60 +58,33 @@ function addLog(text) {
     logBox.scrollTop = logBox.scrollHeight;
 }
 
-// ====================== 核心1：本地文件 → 自动生成公网URL（GitHub Pages可用）======================
-// 方案A：免费匿名图床（catbox.moe，原生支持CORS，无需注册）
-async function uploadToCatbox(file) {
-    addLog("📤 正在上传本地图片到免费CORS图床，生成公网URL...");
+// ====================== 核心1：本地文件 → 302.ai自有存储 → 公网URL（零第三方依赖）======================
+async function uploadTo302(file) {
+    addLog("📤 正在上传本地图片到302.ai自有存储，生成公网URL...");
     const formData = new FormData();
-    formData.append("reqtype", "fileupload");
     formData.append("file", file);
-    formData.append("userhash", ""); // 匿名上传，留空即可
 
     try {
-        // catbox.moe 原生支持所有HTTPS源的CORS，GitHub Pages下完全通
-        const res = await fetch("https://catbox.moe/user/api.php", {
+        const res = await fetch("https://api.302.ai/doubao/files/upload", {
             method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${API_KEY}`
+            },
             body: formData
         });
 
-        if (!res.ok) throw new Error(`图床上传失败，HTTP状态：${res.status}`);
-        const imageUrl = await res.text();
-        if (!imageUrl.startsWith("https://")) throw new Error(`图床返回异常：${imageUrl}`);
+        if (!res.ok) throw new Error(`302文件上传失败，HTTP状态：${res.status}`);
+        const data = await res.json();
+        const imageUrl = data?.data?.url;
+        if (!imageUrl || !imageUrl.startsWith("https://")) throw new Error(`302返回异常：${JSON.stringify(data)}`);
 
         addLog(`✅ 图片上传完成！公网URL：${imageUrl}`);
         return imageUrl;
     } catch (e) {
-        addLog(`❌ 图床上传错误：${e.message}`);
+        addLog(`❌ 302文件上传错误：${e.message}`);
         throw e;
     }
 }
-
-// 方案B：302.ai自有文件存储（隐私性更好，同平台CORS，用同一个API Key）
-// 如需用这个，把下面的uploadToCatbox替换为uploadTo302即可
-// async function uploadTo302(file) {
-//     addLog("📤 正在上传本地图片到302.ai文件存储，生成公网URL...");
-//     const formData = new FormData();
-//     formData.append("file", file);
-
-//     try {
-//         const res = await fetch("https://api.302.ai/doubao/files/upload", {
-//             method: "POST",
-//             headers: { "Authorization": `Bearer ${API_KEY}` },
-//             body: formData
-//         });
-
-//         if (!res.ok) throw new Error(`302文件上传失败，HTTP状态：${res.status}`);
-//         const data = await res.json();
-//         const imageUrl = data?.data?.url;
-//         if (!imageUrl || !imageUrl.startsWith("https://")) throw new Error(`302返回异常：${JSON.stringify(data)}`);
-
-//         addLog(`✅ 图片上传完成！公网URL：${imageUrl}`);
-//         return imageUrl;
-//     } catch (e) {
-//         addLog(`❌ 302文件上传错误：${e.message}`);
-//         throw e;
-//     }
-// }
 
 // ====================== 核心2：视频生成（参数全修复，兼容同步/异步）======================
 async function generateVideo(imageUrl) {
@@ -190,8 +163,8 @@ startBtn.addEventListener('click', async () => {
     resultBox.innerHTML = '';
     
     try {
-        // 1. 本地上传 → 自动生成公网URL（用方案A就传catbox，方案B就传302）
-        const imageUrl = await uploadToCatbox(file);
+        // 1. 本地上传 → 302自有存储 → 自动生成公网URL
+        const imageUrl = await uploadTo302(file);
         // 2. 自动生成视频
         const videoUrl = await generateVideo(imageUrl);
         
