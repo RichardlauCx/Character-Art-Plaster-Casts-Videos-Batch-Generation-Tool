@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【纯视频·二进制直传·无坑版】即梦V3.0</title>
+    <title>【纯视频·二进制直传】即梦V3.0 Pro 测试</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family: monospace}
         body{padding:20px;background:#f5f5f5;max-width:800px;margin:0 auto}
@@ -17,7 +17,7 @@
 </head>
 <body>
     <div class="box">
-        <h3>🎥 纯视频调试（二进制直传，无公网URL，省额度）</h3>
+        <h3>🎥 纯视频调试（即梦 3.0 Pro / 二进制直传）</h3>
         <input type="file" id="file" accept="image/*" style="margin:15px 0">
         <button id="start">开始生成视频</button>
         <button id="clear">清空日志</button>
@@ -31,20 +31,21 @@
     <div id="result"></div>
 
 <script>
-// ====================== 【核心配置 · 100%对齐官方OpenAPI】======================
+// ====================== 【核心配置 · 适配即梦 3.0 Pro】======================
+// ⚠️ 警告：请在测试完成后立即重置/删除您的 API_KEY，不要暴露在前端环境！
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
 const BASE = "https://api.302.ai";
 
-// 视频接口（官方文档）
-const VIDEO_API = `${BASE}/doubao/drawing/jimengv30`;
+// 🔴 修改点 1：使用新的 Pro 版本接口
+const VIDEO_API = `${BASE}/doubao/drawing/jimeng_ti2v_v30_pro`; 
 const QUERY_API = `${BASE}/doubao/drawing/query_task`;
 
-// 官方必传参数（严格对齐，无冗余）
+// 🔴 修改点 2：移除 req_key，添加 aspect_ratio
 const CONFIG = {
-  req_key: "jimeng_i2v_first_v30",    // 720P 图生视频首帧（官方枚举）
   prompt: "石膏质感人物，流畅运镜，无抖动，无水印", // 精简提示词（<400字）
-  seed: -1,                           // 随机种子（官方默认）
-  frames: 121                         // 5秒（官方固定值：24*5+1）
+  seed: -1,                              // 随机种子（官方默认）
+  frames: 121,                           // 5秒（官方固定值：24*5+1）
+  aspect_ratio: "16:9"                   // 新增：视频长宽比
 };
 
 // ====================== 【日志工具】======================
@@ -61,7 +62,6 @@ const fileToPureBinaryBase64 = (file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const fullBase64 = e.target.result;
-      // 🔴 核心：彻底去掉data:image/xxx;base64,前缀，只保留纯二进制字符串
       const pureBinary = fullBase64.replace(/^data:image\/[a-zA-Z0-9+./]+;base64,/, "");
       log(`✅ 图片转纯二进制Base64完成（长度：${pureBinary.length}，无任何前缀）`);
       res(pureBinary);
@@ -71,19 +71,20 @@ const fileToPureBinaryBase64 = (file) => {
   });
 };
 
-// ====================== 【2. 核心：创建视频任务（仅用binary_data_base64）】======================
+// ====================== 【2. 核心：创建视频任务】======================
 const createVideoTask = async (pureBinaryBase64) => {
-  log("→ 调用视频接口：创建任务（仅二进制直传，无image_urls）");
-  // 🟢 严格按照官方接口，仅用binary_data_base64，彻底删除image_urls
+  log("→ 调用即梦3.0 Pro接口：创建任务（二进制直传）");
+  
+  // 🔴 修改点 3：组装新的请求体
   const requestBody = {
-    req_key: CONFIG.req_key,
     prompt: CONFIG.prompt,
     seed: CONFIG.seed,
     frames: CONFIG.frames,
-    binary_data_base64: [pureBinaryBase64] // 官方支持的二进制参数，无公网URL要求
+    aspect_ratio: CONFIG.aspect_ratio,
+    binary_data_base64: [pureBinaryBase64] // API范例中是一个数组
   };
 
-  log(`请求参数（无image_urls）：${JSON.stringify(requestBody, null, 2)}`);
+  log(`请求参数：${JSON.stringify({...requestBody, binary_data_base64: ["<Base64数据过长已隐藏>"]}, null, 2)}`);
 
   const resp = await fetch(VIDEO_API, {
     method: "POST",
@@ -98,7 +99,7 @@ const createVideoTask = async (pureBinaryBase64) => {
   log(`接口完整返回：${JSON.stringify(responseData, null, 2)}`);
 
   if (responseData.code !== 10000 || !responseData.data?.task_id) {
-    throw new Error(`任务创建失败：${responseData.message || "未知错误"}`);
+    throw new Error(`任务创建失败：${responseData.message || JSON.stringify(responseData)}`);
   }
 
   const taskId = responseData.data.task_id;
@@ -108,11 +109,11 @@ const createVideoTask = async (pureBinaryBase64) => {
 
 // ====================== 【3. 核心：轮询查询任务】======================
 const waitVideoResult = async (taskId) => {
-  log("→ 开始轮询任务状态（最多30次/90秒）");
+  log("→ 开始轮询任务状态（最多40次/120秒，视频生成较慢）");
   
-  for (let i = 1; i <= 30; i++) {
+  for (let i = 1; i <= 40; i++) {
     await new Promise(r => setTimeout(r, 3000));
-    log(`轮询 ${i}/30`);
+    log(`轮询 ${i}/40`);
 
     try {
       const resp = await fetch(QUERY_API, {
@@ -125,21 +126,22 @@ const waitVideoResult = async (taskId) => {
       });
 
       const data = await resp.json();
-      log(`轮询返回：${JSON.stringify(data, null, 2)}`);
-
-      // 成功：返回视频URL
+      
       if (data.code === 10000 && data.data?.video_url) {
         log("🎉 视频生成完成！");
         return data.data.video_url;
       }
 
-      // 任务失败
       if (data.data?.status === "failed") {
         throw new Error(`任务执行失败：${data.data?.error || "未知错误"}`);
       }
 
+      // 如果仍在排队或处理中，只打印极简日志避免刷屏
+      log(`当前状态: ${data.data?.status || "未知"}...`);
+
     } catch (e) {
-      log(`⚠️ 轮询异常：${e.message}，继续重试`);
+      log(`⚠️ 轮询异常/失败：${e.message}`);
+      if (e.message.includes("任务执行失败")) throw e; // 抛出致命错误，终止轮询
     }
   }
   throw new Error("任务超时（已达最大重试次数）");
@@ -155,7 +157,7 @@ document.getElementById("start").onclick = async () => {
   document.getElementById("result").innerHTML = "";
 
   try {
-    log("=== 开始纯视频调试流程（二进制直传，无image_urls） ===");
+    log("=== 开始即梦3.0 Pro纯视频调试流程 ===");
     const pureBinary = await fileToPureBinaryBase64(file);
     const taskId = await createVideoTask(pureBinary);
     const videoUrl = await waitVideoResult(taskId);
@@ -163,13 +165,13 @@ document.getElementById("start").onclick = async () => {
     document.getElementById("result").innerHTML = `
       <div class="result">
         ✅ 视频生成成功<br>
-        <video src="${videoUrl}" controls muted></video>
+        <video src="${videoUrl}" controls muted autoplay loop></video>
       </div>
     `;
     log("=== 全流程完成 ===");
   } catch (e) {
     log(`❌ 失败：${e.message}`);
-    document.getElementById("result").innerHTML = `<div class="result">❌ 失败：${e.message}</div>`;
+    document.getElementById("result").innerHTML = `<div class="result" style="color:red">❌ 失败：${e.message}</div>`;
   }
 
   document.getElementById("start").disabled = false;
