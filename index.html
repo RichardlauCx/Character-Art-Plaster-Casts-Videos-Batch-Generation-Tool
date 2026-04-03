@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【调试版】人物图→石膏图→视频 批量生成</title>
+    <title>【最终调试版】人物图→石膏图→视频 批量生成</title>
     <style>
         * {margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
         body {max-width:1200px;margin:20px auto;padding:0 20px;background:#f5f5f5}
@@ -13,7 +13,7 @@
         #fileInput {margin:10px 0;padding:8px}
         .btn {background:#409eff;color:white;border:none;padding:12px 30px;border-radius:6px;cursor:pointer;margin:10px 5px}
         .btn:disabled {background:#ccc;cursor:not-allowed}
-        .log-box {background:#f8f9fa;padding:15px;border-radius:6px;height:300px;overflow-y:auto;margin:20px 0;font-size:13px;line-height:1.5;font-family:monospace}
+        .log-box {background:#f8f9fa;padding:15px;border-radius:6px;height:400px;overflow-y:auto;margin:20px 0;font-size:13px;line-height:1.5;font-family:monospace}
         .result-box {margin-top:30px}
         .result-item {border:1px solid #eee;border-radius:8px;padding:20px;margin:15px 0}
         .result-item.success {border-left:5px solid #67c23a}
@@ -24,16 +24,16 @@
 </head>
 <body>
     <div class="container">
-        <h1 class="title">【调试版】人物图片批量转石膏图+短视频</h1>
+        <h1 class="title">【最终调试版】人物图片批量转石膏图+短视频</h1>
         
         <div class="upload-area">
             <h3>选择本地人物图片（支持批量多选）</h3>
             <input type="file" id="fileInput" accept="image/*" multiple>
-            <button class="btn" id="startBtn">开始批量处理（调试模式）</button>
+            <button class="btn" id="startBtn">开始批量处理（全量日志）</button>
             <button class="btn" id="clearBtn">清空日志</button>
         </div>
 
-        <h3>📝 全量调试日志</h3>
+        <h3>📝 全量调试日志（异步轮询全流程）</h3>
         <div class="log-box" id="logBox"></div>
 
         <div class="result-box" id="resultBox"></div>
@@ -51,20 +51,22 @@
 
         // 2. 视频生成（即梦JimengV3.0 图生视频首帧 720P）
         const VIDEO_API = `${BASE_API}/doubao/drawing/jimengv30`;
-        const VIDEO_REQ_KEY = "jimeng_i2v_first_v30"; // 【必填！解决missing req_key错误】
+        const VIDEO_QUERY_API = `${BASE_API}/doubao/drawing/query_task`; // 【新增：任务查询接口】
+        const VIDEO_REQ_KEY = "jimeng_i2v_first_v30"; // 【必填：解决missing req_key】
         const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感无水印，无文字，静态图片转动态 平稳无抖动 在每次转动到一个视角时停留1-2秒左右展示一下再进行下步转动 视频运行是不能让人物看着出现变形（不能改变人物特征） 转动中可以眨一眨眼睛动一动头 让视频更生动自然";
         const VIDEO_CONFIG = { duration: 3, ratio: "1:1", fps: 24 };
+        const POLL_CONFIG = { maxRetries: 60, interval: 3000 }; // 【轮询配置：60次×3秒=3分钟超时】
 
         // ====================== 【工具函数：日志增强】======================
         const $ = (selector) => document.querySelector(selector);
         const logBox = $("#logBox");
         const resultBox = $("#resultBox");
 
-        // 带时间戳的分级日志，同时打印到控制台
+        // 分级日志：同时打印到页面+控制台，全量可追溯
         function addLog(level, message, data = null) {
             const time = new Date().toLocaleTimeString();
             const levelMap = {
-                info: "ℹ️", success: "✅", warn: "⚠️", error: "❌", debug: "🔍"
+                info: "ℹ️", success: "✅", warn: "⚠️", error: "❌", debug: "🔍", poll: "🔄"
             };
             const levelTag = levelMap[level] || "📝";
             
@@ -104,7 +106,6 @@
         // ====================== 【核心函数1：生成石膏图（全量日志）】======================
         async function generatePlaster(imageBase64) {
             addLog("info", "=== 开始生成石膏质感图 ===");
-            // 1. 打印请求参数
             const requestBody = {
                 model: IMAGE_MODEL,
                 prompt: IMAGE_PROMPT,
@@ -117,7 +118,6 @@
             addLog("debug", "石膏图请求参数", requestBody);
 
             try {
-                // 2. 发送请求
                 addLog("info", `发送请求到：${IMAGE_API}`);
                 const response = await fetch(IMAGE_API, {
                     method: "POST",
@@ -128,15 +128,12 @@
                     body: JSON.stringify(requestBody)
                 });
 
-                // 3. 打印响应状态
                 addLog("debug", `石膏图响应状态：${response.status} ${response.statusText}`);
                 if (!response.ok) throw new Error(`HTTP错误：${response.status} ${response.statusText}`);
 
-                // 4. 解析响应数据
                 const responseData = await response.json();
                 addLog("debug", "石膏图完整响应数据", responseData);
 
-                // 5. 校验数据
                 const plasterUrl = responseData?.data?.[0]?.url;
                 if (!plasterUrl) throw new Error(`石膏图生成失败：${responseData?.error?.message || "无有效URL"}`);
 
@@ -149,12 +146,87 @@
             }
         }
 
-        // ====================== 【核心函数2：生成视频（全量日志+参数修正）】======================
+        // ====================== 【核心函数2：异步轮询视频任务（全量日志）】======================
+        async function waitForVideoTask(taskId) {
+            addLog("info", `=== 开始轮询视频任务（task_id: ${taskId}）===`);
+            let retryCount = 0;
+
+            while (retryCount < POLL_CONFIG.maxRetries) {
+                retryCount++;
+                addLog("poll", `轮询尝试 ${retryCount}/${POLL_CONFIG.maxRetries}`);
+
+                try {
+                    // 发送查询请求
+                    const response = await fetch(VIDEO_QUERY_API, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${API_KEY}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({ task_id: taskId })
+                    });
+
+                    addLog("debug", `轮询响应状态：${response.status} ${response.statusText}`);
+                    
+                    // 处理服务繁忙（503/502）：自动重试
+                    if (response.status >= 500) {
+                        addLog("warn", `服务繁忙(${response.status})，${POLL_CONFIG.interval/1000}秒后重试`);
+                        await new Promise(r => setTimeout(r, POLL_CONFIG.interval));
+                        continue;
+                    }
+
+                    if (!response.ok) throw new Error(`HTTP错误：${response.status} ${response.statusText}`);
+
+                    const responseData = await response.json();
+                    addLog("debug", "轮询完整响应数据", responseData);
+
+                    // 解析任务状态
+                    const taskStatus = responseData?.data?.status;
+                    const videoUrl = responseData?.data?.video_url;
+
+                    // 情况1：任务成功，拿到视频URL
+                    if (responseData?.code === 10000 && videoUrl) {
+                        addLog("success", `视频任务生成成功！URL：${videoUrl}`);
+                        return videoUrl;
+                    }
+
+                    // 情况2：任务处理中，继续轮询
+                    if (taskStatus === "processing" || taskStatus === "pending") {
+                        addLog("info", `任务处理中（状态: ${taskStatus}），${POLL_CONFIG.interval/1000}秒后重试`);
+                        await new Promise(r => setTimeout(r, POLL_CONFIG.interval));
+                        continue;
+                    }
+
+                    // 情况3：任务失败
+                    if (taskStatus === "failed") {
+                        throw new Error(`视频任务生成失败：${responseData?.data?.error || "未知错误"}`);
+                    }
+
+                    // 情况4：未知状态，继续轮询
+                    addLog("warn", `未知任务状态: ${taskStatus}，继续重试`);
+                    await new Promise(r => setTimeout(r, POLL_CONFIG.interval));
+
+                } catch (err) {
+                    addLog("error", `轮询异常：${err.message}`, err);
+                    // 网络错误/服务错误：重试
+                    if (retryCount < POLL_CONFIG.maxRetries) {
+                        addLog("warn", `${POLL_CONFIG.interval/1000}秒后重试`);
+                        await new Promise(r => setTimeout(r, POLL_CONFIG.interval));
+                    } else {
+                        throw err;
+                    }
+                }
+            }
+
+            // 超时
+            throw new Error(`视频任务超时（已达最大重试次数${POLL_CONFIG.maxRetries}次）`);
+        }
+
+        // ====================== 【核心函数3：创建视频任务（全量日志）】======================
         async function generateVideo(plasterUrl) {
-            addLog("info", "=== 开始生成短视频 ===");
-            // 1. 【关键修正】严格对齐官方文档：补全req_key + 修正参数名image_urls（数组）
+            addLog("info", "=== 开始创建视频生成任务 ===");
             const requestBody = {
-                req_key: VIDEO_REQ_KEY, // 【必填！解决missing req_key错误】
+                req_key: VIDEO_REQ_KEY,
                 prompt: VIDEO_PROMPT,
                 image_urls: [plasterUrl], // 【参数名修正：image_url → image_urls（数组）】
                 duration: VIDEO_CONFIG.duration,
@@ -164,7 +236,6 @@
             addLog("debug", "视频请求参数（已修正）", requestBody);
 
             try {
-                // 2. 发送请求
                 addLog("info", `发送请求到：${VIDEO_API}`);
                 const response = await fetch(VIDEO_API, {
                     method: "POST",
@@ -175,40 +246,27 @@
                     body: JSON.stringify(requestBody)
                 });
 
-                // 3. 打印响应状态
                 addLog("debug", `视频响应状态：${response.status} ${response.statusText}`);
                 if (!response.ok) throw new Error(`HTTP错误：${response.status} ${response.statusText}`);
 
-                // 4. 解析响应数据
                 const responseData = await response.json();
                 addLog("debug", "视频完整响应数据", responseData);
 
-                // 5. 校验数据（兼容302.ai同步/异步两种返回格式）
-                let videoUrl = null;
-                // 情况1：同步返回（Coze原逻辑）
-                if (responseData?.data?.[0]?.url) {
-                    videoUrl = responseData.data[0].url;
-                }
-                // 情况2：异步任务返回（官方文档格式）
-                else if (responseData?.code === 10000 && responseData?.data?.task_id) {
-                    addLog("info", `检测到异步任务，task_id：${responseData.data.task_id}`);
-                    throw new Error("接口返回异步任务，需切换同步模式");
-                }
-                // 情况3：错误
-                else {
-                    throw new Error(`视频生成失败：${responseData?.message || responseData?.error?.message || "无有效URL"}`);
-                }
+                // 提取task_id
+                const taskId = responseData?.data?.task_id;
+                if (!taskId) throw new Error(`视频任务创建失败：${responseData?.message || "无有效task_id"}`);
 
-                addLog("success", `视频生成成功！URL：${videoUrl}`);
-                return videoUrl;
+                addLog("success", `视频任务创建成功！task_id: ${taskId}`);
+                // 调用轮询函数，等待任务完成
+                return await waitForVideoTask(taskId);
 
             } catch (err) {
-                addLog("error", `视频生成异常：${err.message}`, err);
+                addLog("error", `视频任务创建异常：${err.message}`, err);
                 throw err;
             }
         }
 
-        // ====================== 【批量处理主逻辑（调试增强）】======================
+        // ====================== 【批量处理主逻辑（全流程打通）】======================
         $("#startBtn").onclick = async () => {
             const files = Array.from($("#fileInput").files);
             if (files.length === 0) {
@@ -217,7 +275,7 @@
             }
 
             $("#startBtn").disabled = true;
-            $("#startBtn").textContent = "调试中...";
+            $("#startBtn").textContent = "处理中（全量日志）";
             addLog("info", `=== 开始批量处理，共${files.length}张图片 ===`);
             resultBox.innerHTML = "";
 
@@ -246,7 +304,7 @@
 
             addLog("info", `\n=== 批量处理完成！成功：${successCount}张，失败：${failCount}张 ===`);
             $("#startBtn").disabled = false;
-            $("#startBtn").textContent = "开始批量处理（调试模式）";
+            $("#startBtn").textContent = "开始批量处理（全量日志）";
         };
 
         // ====================== 【结果渲染函数】======================
