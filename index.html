@@ -58,8 +58,8 @@
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
 // 文件上传接口
 const UPLOAD_API = "https://api.302.ai/302/upload-file";
-// 图生图接口（石膏质感专用）
-const IMG2IMG_API = "https://api.302.ai/doubao/drawing/jimeng_i2i_v30";
+// 【修复1：图生图接口优先用国内中转，提升稳定性】
+const IMG2IMG_API = "https://api.302ai.cn/doubao/drawing/jimeng_i2i_v30";
 // 图生视频3.0Pro接口
 const VIDEO_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro";
 // 视频任务查询接口
@@ -67,10 +67,12 @@ const QUERY_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro_result"
 
 //  Prompt参数（石膏质感专属，控制风格）
 const IMG2IMG_PROMPT = "石膏质感雕塑，纯白石膏材质，细腻纹理，高清细节，光影柔和，无水印，极简风格，人物石膏像，专业艺术质感";
-const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感";
+const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感";
 // 通用配置
 const IMG2IMG_CONFIG = { req_key: "jimeng_i2i_v30", strength: 0.6 };
 const VIDEO_CONFIG = { frames: 121, aspect_ratio: "1:1" };
+// 【修复2：图生图重试配置：最多3次，指数退避】
+const IMG2IMG_RETRY = { maxRetries: 3, delays: [2000, 4000, 8000] };
 
 // ====================== 全局变量 ======================
 let taskList = [];
@@ -164,26 +166,49 @@ async function uploadFile(file) {
     return data.data;
 }
 
-// ====================== 2. 图生图（石膏质感）核心模块 ======================
-async function generatePlasterImage(imgUrl) {
-    log("🎨 正在生成石膏质感图生图...");
-    const res = await fetch(IMG2IMG_API, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${API_KEY}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            prompt: IMG2IMG_PROMPT,
-            image_urls: [imgUrl],
-            ...IMG2IMG_CONFIG
-        })
-    });
-    const data = await res.json();
-    const plasterUrl = data?.data?.[0]?.url;
-    if(!plasterUrl) throw new Error("石膏图生成失败");
-    log("✅ 石膏质感图生成完成");
-    return plasterUrl;
+// ====================== 【核心修复3：图生图加重试+状态校验】======================
+async function generatePlasterImage(imgUrl, retryCount = 0) {
+    log(`🎨 正在生成石膏质感图生图（第${retryCount + 1}次尝试）...`);
+    
+    try {
+        const res = await fetch(IMG2IMG_API, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                prompt: IMG2IMG_PROMPT,
+                image_urls: [imgUrl],
+                ...IMG2IMG_CONFIG
+            })
+        });
+
+        // 【修复4：校验HTTP状态，非200直接重试】
+        if (!res.ok) {
+            throw new Error(`HTTP状态异常：${res.status} ${res.statusText}`);
+        }
+
+        const data = await res.json();
+        // 【修复5：打印完整响应，方便排查】
+        log(`图生图响应：${JSON.stringify(data)}`);
+        
+        const plasterUrl = data?.data?.[0]?.url;
+        if(!plasterUrl) throw new Error("未获取到石膏图URL");
+        
+        log("✅ 石膏质感图生成完成");
+        return plasterUrl;
+    } catch (e) {
+        // 【修复6：指数退避重试，最多3次】
+        if (retryCount < IMG2IMG_RETRY.maxRetries - 1) {
+            const delay = IMG2IMG_RETRY.delays[retryCount];
+            log(`⚠️ 图生图失败：${e.message}，${delay/1000}秒后重试`);
+            await new Promise(r => setTimeout(r, delay));
+            return generatePlasterImage(imgUrl, retryCount + 1);
+        }
+        // 重试耗尽，抛出最终错误
+        throw new Error(`图生图重试${IMG2IMG_RETRY.maxRetries}次后失败：${e.message}`);
+    }
 }
 
 // ====================== 3. 提交图生视频任务 ======================
@@ -230,7 +255,7 @@ async function submitBatchTasks() {
             log(`===== 开始处理第${i+1}张：${taskList[i].fileName} =====`);
             // 1. 上传原图
             taskList[i].originUrl = await uploadFile(taskList[i].file);
-            // 2. 生成石膏质感图
+            // 2. 生成石膏质感图（带重试）
             taskList[i].plasterUrl = await generatePlasterImage(taskList[i].originUrl);
             taskList[i].status = "img2img_done";
             renderTaskList();
