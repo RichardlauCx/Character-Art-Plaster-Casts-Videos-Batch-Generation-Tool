@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI石膏质感视频批量生成系统｜奈之何科技</title>
+<title>AI石膏质感视频批量生成系统（分步调试版）｜奈之何科技</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-6xl mx-auto p-6 bg-gray-50">
-<!-- 专业标题区 -->
+<!-- 标题区 -->
 <div class="text-center mb-8">
-    <h1 class="text-3xl font-bold text-gray-800 mb-2">AI石膏质感视频批量生成系统</h1>
-    <p class="text-gray-500">全流程：原图 → Seedream5.0石膏质感图生图 → 即梦3.0Pro图生视频 | 批量自动化处理</p>
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">AI石膏质感视频批量生成系统（分步调试版）</h1>
+    <p class="text-gray-500">分步执行：上传→图生图→视频→查询，每步单独验证</p>
 </div>
 
 <!-- 操作区 -->
 <div class="bg-white p-6 rounded-xl shadow-md mb-6">
-    <h2 class="text-xl font-semibold mb-4 text-gray-700">任务操作</h2>
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">分步操作</h2>
     <div class="space-y-4">
         <div>
             <label class="block mb-2 font-medium text-gray-600">批量上传原始图片（可多选）：</label>
@@ -23,14 +23,20 @@
                    class="w-full p-3 border border-gray-300 rounded-lg">
         </div>
         <div class="flex flex-wrap gap-3">
-            <button id="submitBatchBtn" class="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition">
-                🚀 批量生成石膏图+提交视频任务
+            <button id="step1UploadBtn" class="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition">
+                📤 步骤1：批量上传图片（仅上传）
             </button>
-            <button id="queryBatchBtn" class="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition">
-                🔍 批量查询所有任务状态
+            <button id="step2Img2ImgBtn" class="flex-1 bg-indigo-600 text-white py-3 px-4 rounded-lg hover:bg-indigo-700 transition" disabled>
+                🎨 步骤2：批量生成石膏图（仅图生图）
+            </button>
+            <button id="step3VideoBtn" class="flex-1 bg-purple-600 text-white py-3 px-4 rounded-lg hover:bg-purple-700 transition" disabled>
+                🎬 步骤3：批量提交视频任务（仅视频）
+            </button>
+            <button id="step4QueryBtn" class="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition" disabled>
+                🔍 步骤4：批量查询视频结果（仅查询）
             </button>
             <button id="resetBtn" class="flex-1 bg-gray-500 text-white py-3 px-4 rounded-lg hover:bg-gray-600 transition">
-                🔄 重置全部任务
+                🔄 重置全部
             </button>
         </div>
     </div>
@@ -44,40 +50,42 @@
 
 <!-- 任务列表 -->
 <div class="bg-white p-6 rounded-xl shadow-md mb-6">
-    <h2 class="text-xl font-semibold mb-4 text-gray-700">任务列表（原图→石膏图→视频）</h2>
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">任务列表（分步状态）</h2>
     <div id="taskList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
 </div>
 
-<!-- 页脚：技术支持 -->
+<!-- 页脚 -->
 <div class="text-center text-gray-400 text-sm py-4">
     技术提供 &nbsp;©&nbsp; 奈之何科技 &nbsp;|&nbsp; 技术支持：AIoT健康管理·AIGC视觉生成
 </div>
 
 <script>
-// ====================== 官方接口【严格锁死文档】======================
+// ====================== 官方接口配置 ======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
-// 🔥 修复：双接口兜底（正式+国内中转），100%解决域名问题
-const UPLOAD_API = "https://api.302ai.cn/302/upload-file";
-const IMG2IMG_API = "https://api.302ai.cn/doubao/images/generations";
-const VIDEO_API = "https://api.302ai.cn/doubao/drawing/jimeng_ti2v_v30_pro";
-const QUERY_API = "https://api.302ai.cn/doubao/drawing/jimeng_ti2v_v30_pro_result";
+const UPLOAD_API = "https://api.302.ai/302/upload-file";
+const IMG2IMG_API = "https://api.302.ai/doubao/images/generations";
+const VIDEO_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro";
+const QUERY_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro_result";
 
-// 配置
-const PLASTER_PROMPT = "纯白石膏雕塑质感，细腻纹理，柔和光影，高清细节";
+// 配置参数
+const PLASTER_PROMPT = "纯白石膏雕塑质感，细腻纹理，柔和光影，高清细节，极简艺术风格，人物石膏像，无水印";
 const SEEDREAM_MODEL = "doubao-seedream-5-0-260128";
-const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转到另一边的侧方 再转到正脸 最后推近展示特写";
+const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感";
 const VIDEO_CONFIG = { frames: 121, aspect_ratio: "1:1" };
 
 // 全局变量
+let originalFiles = []; // 【核心修复】保存原始File对象，绝不修改，保证有效性
 let taskList = [];
 const fileInput = document.getElementById("fileInput");
-const submitBatchBtn = document.getElementById("submitBatchBtn");
-const queryBatchBtn = document.getElementById("queryBatchBtn");
+const step1UploadBtn = document.getElementById("step1UploadBtn");
+const step2Img2ImgBtn = document.getElementById("step2Img2ImgBtn");
+const step3VideoBtn = document.getElementById("step3VideoBtn");
+const step4QueryBtn = document.getElementById("step4QueryBtn");
 const resetBtn = document.getElementById("resetBtn");
 const logBox = document.getElementById("log");
 const taskListDom = document.getElementById("taskList");
 
-// 极简日志
+// 日志
 function log(text) {
     logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
     logBox.scrollTop = logBox.scrollHeight;
@@ -85,151 +93,275 @@ function log(text) {
 
 // 重置
 function resetAll() {
+    originalFiles = [];
     taskList = [];
     fileInput.value = "";
     taskListDom.innerHTML = "";
     logBox.innerHTML = "";
+    step1UploadBtn.disabled = false;
+    step2Img2ImgBtn.disabled = true;
+    step3VideoBtn.disabled = true;
+    step4QueryBtn.disabled = true;
 }
 
 // 状态映射
-function getStatusText(status) {
+function getStatusText(task) {
     const statusMap = {
-        "in_queue": "视频生成中",
-        "done": "已完成",
-        "failed": "生成失败",
-        "pending": "待处理",
-        "plaster_done": "石膏图已生成"
+        "uploaded": { text: "已上传", color: "text-blue-600" },
+        "plaster_done": { text: "石膏图已生成", color: "text-indigo-600" },
+        "video_submitted": { text: "视频任务已提交", color: "text-purple-600" },
+        "done": { text: "视频已完成", color: "text-green-600" },
+        "failed": { text: "失败", color: "text-red-600" }
     };
-    return statusMap[status] || "未知状态";
+    return statusMap[task.status] || { text: "待处理", color: "text-gray-600" };
 }
 
-// 渲染卡片
+// 渲染任务列表
 function renderTaskList() {
     taskListDom.innerHTML = "";
-    taskList.forEach(task => {
+    taskList.forEach((task, index) => {
         const card = document.createElement("div");
-        card.className = "border p-5 rounded-xl";
+        card.className = "border border-gray-200 rounded-xl p-5 bg-white shadow-sm";
+        
+        const { text: statusText, color: statusColor } = getStatusText(task);
+        const plasterHtml = task.plasterUrl ? `
+            <div class="mt-2">
+                <p class="text-xs text-gray-500">石膏图：</p>
+                <img src="${task.plasterUrl}" class="w-full h-32 object-cover rounded-lg mt-1">
+            </div>
+        ` : "";
+        const videoHtml = task.videoUrl ? `
+            <div class="mt-3 space-y-2">
+                <p class="text-xs text-gray-500">视频：</p>
+                <video controls class="w-full h-36 object-cover rounded-lg">
+                    <source src="${task.videoUrl}" type="video/mp4">
+                </video>
+                <p class="text-xs text-gray-500 break-all">URL：${task.videoUrl}</p>
+                <button onclick="navigator.clipboard.writeText('${task.videoUrl}')" 
+                        class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                    复制链接
+                </button>
+            </div>
+        ` : "";
+
         card.innerHTML = `
-            <p>${task.fileName}</p>
-            <p>${getStatusText(task.status)}</p>
-            ${task.plasterUrl ? `<img src="${task.plasterUrl}" class="w-full h-32 rounded mt-2">` : ""}
-            ${task.videoUrl ? `<video controls src="${task.videoUrl}" class="w-full h-36 rounded mt-2"></video>` : ""}
+            <p class="text-sm font-medium text-gray-700 mb-1">文件：${task.fileName}</p>
+            <p class="text-xs mb-2 ${statusColor}">${statusText}</p>
+            <p class="text-xs text-gray-400 break-all mb-2">原图URL：${task.originUrl || "-"}</p>
+            <p class="text-xs text-gray-400 break-all mb-2">TaskID：${task.taskId || "-"}</p>
+            ${plasterHtml}
+            ${videoHtml}
         `;
         taskListDom.appendChild(card);
     });
 }
 
-// ====================== 🔥 【终极排查修复】文件上传（100%严格按文档，无任何多余代码）======================
-async function uploadFile(file) {
-    log("开始上传文件...");
-    const formData = new FormData();
-    formData.append("file", file); // 仅保留文档要求的file字段
-
-    try {
-        const response = await fetch(UPLOAD_API, {
-            method: "POST",
-            headers: {
-                "Authorization": "Bearer " + API_KEY // 仅传Authorization，无其他请求头
-            },
-            body: formData // 纯原生表单，无任何封装
-        });
-
-        // 打印原始响应，精准排查
-        const result = await response.json();
-        log("上传响应：" + JSON.stringify(result));
-
-        // 严格按文档校验
-        if (result.code !== 200) throw new Error(result.message);
-        log("上传成功！");
-        return result.data;
-    } catch (err) {
-        log("上传失败：" + err.message);
-        throw err;
+// ====================== 【核心修复】文件上传（100%验证File对象）======================
+async function uploadSingleFile(file) {
+    // 1. 严格校验File对象有效性
+    if (!file || !(file instanceof File)) {
+        throw new Error("无效的File对象");
     }
-}
+    log(`上传文件：${file.name}，大小：${(file.size/1024).toFixed(2)}KB`);
 
-// ====================== 图生图（极简，无重试）======================
-async function generatePlasterImage(url) {
-    log("生成石膏图...");
-    const res = await fetch(IMG2IMG_API, {
+    // 2. 构造FormData（严格按文档，加文件名兼容后端）
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+
+    // 3. 发起请求（仅传Authorization，无任何多余头）
+    const res = await fetch(UPLOAD_API, {
         method: "POST",
-        headers: { "Authorization": "Bearer "+API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({
-            model: SEEDREAM_MODEL,
-            prompt: PLASTER_PROMPT,
-            image: [url],
-            size: "2K",
-            watermark: false
-        })
+        headers: { "Authorization": `Bearer ${API_KEY}` },
+        body: formData
     });
+
+    // 4. 解析响应
     const data = await res.json();
-    const imgUrl = data?.data?.[0]?.url;
-    if (!imgUrl) throw new Error("石膏图生成失败");
-    log("石膏图生成成功");
-    return imgUrl;
+    log(`上传响应：${JSON.stringify(data)}`);
+
+    // 5. 严格校验
+    if (data.code !== 200 || !data.data) {
+        throw new Error(data.message || "上传失败");
+    }
+
+    log(`✅ 上传成功，URL：${data.data}`);
+    return data.data;
 }
 
-// ====================== 提交视频任务 ======================
-async function createVideoTask(url) {
-    const res = await fetch(VIDEO_API, {
-        method: "POST",
-        headers: { "Authorization": "Bearer "+API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: VIDEO_PROMPT, image_urls: [url], ...VIDEO_CONFIG })
-    });
-    const data = await res.json();
-    return data?.data?.task_id;
-}
-
-// ====================== 批量执行 ======================
-async function submitBatchTasks() {
+// ====================== 步骤1：批量上传（仅上传）======================
+async function step1BatchUpload() {
     const files = Array.from(fileInput.files);
-    if (!files.length) { alert("请选图片"); return; }
+    if (!files.length) {
+        alert("请先选择图片");
+        return;
+    }
 
-    submitBatchBtn.disabled = true;
-    taskList = files.map(f => ({ fileName: f.name, originUrl: "", plasterUrl: "", taskId: "", videoUrl: "", status: "pending" }));
+    // 【核心修复】保存原始File数组，绝不修改
+    originalFiles = files;
+    step1UploadBtn.disabled = true;
+    taskList = files.map(file => ({
+        fileName: file.name,
+        originUrl: "",
+        plasterUrl: "",
+        taskId: "",
+        videoUrl: "",
+        status: "pending"
+    }));
     renderTaskList();
 
-    for (let i=0; i<taskList.length; i++) {
+    // 串行上传（避免限流）
+    for (let i = 0; i < taskList.length; i++) {
         try {
-            log(`处理第${i+1}张`);
-            taskList[i].originUrl = await uploadFile(taskList[i].file);
-            taskList[i].plasterUrl = await generatePlasterImage(taskList[i].originUrl);
-            taskList[i].status = "plaster_done";
-            renderTaskList();
-            taskList[i].taskId = await createVideoTask(taskList[i].plasterUrl);
-            taskList[i].status = "in_queue";
+            log(`===== 步骤1：上传第${i+1}张：${taskList[i].fileName} =====`);
+            // 【核心修复】直接用原始File数组里的对象，绝不从taskList取
+            taskList[i].originUrl = await uploadSingleFile(originalFiles[i]);
+            taskList[i].status = "uploaded";
             renderTaskList();
         } catch (e) {
             taskList[i].status = "failed";
+            log(`第${i+1}张上传失败：${e.message}`);
             renderTaskList();
         }
     }
-    submitBatchBtn.disabled = false;
-    log("批量任务执行完毕");
+
+    step1UploadBtn.disabled = false;
+    step2Img2ImgBtn.disabled = false;
+    log("✅ 步骤1：批量上传完成");
 }
 
-// ====================== 查询视频 ======================
-async function queryBatchTasks() {
-    for (let t of taskList) {
-        if (!t.taskId || t.status === "done") continue;
-        const res = await fetch(QUERY_API, {
-            method: "POST",
-            headers: { "Authorization": "Bearer "+API_KEY, "Content-Type": "application/json" },
-            body: JSON.stringify({ task_id: t.taskId })
-        });
-        const data = await res.json();
-        if (data.data?.status === "done") {
-            t.status = "done";
-            t.videoUrl = data.data.video_url;
+// ====================== 步骤2：批量图生图（仅图生图）======================
+async function step2BatchImg2Img() {
+    step2Img2ImgBtn.disabled = true;
+
+    for (let i = 0; i < taskList.length; i++) {
+        const task = taskList[i];
+        if (task.status !== "uploaded" || !task.originUrl) continue;
+
+        try {
+            log(`===== 步骤2：生成第${i+1}张石膏图：${task.fileName} =====`);
+            const res = await fetch(IMG2IMG_API, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${API_KEY}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: SEEDREAM_MODEL,
+                    prompt: PLASTER_PROMPT,
+                    image: [task.originUrl],
+                    size: "2K",
+                    response_format: "url",
+                    watermark: false,
+                    sequential_image_generation: "disabled"
+                })
+            });
+
+            const data = await res.json();
+            const plasterUrl = data?.data?.[0]?.url;
+            if (!plasterUrl) throw new Error("石膏图生成失败");
+
+            task.plasterUrl = plasterUrl;
+            task.status = "plaster_done";
+            log(`✅ 第${i+1}张石膏图生成成功：${plasterUrl}`);
+            renderTaskList();
+        } catch (e) {
+            task.status = "failed";
+            log(`第${i+1}张石膏图生成失败：${e.message}`);
+            renderTaskList();
         }
     }
-    renderTaskList();
-    log("查询完成");
+
+    step2Img2ImgBtn.disabled = false;
+    step3VideoBtn.disabled = false;
+    log("✅ 步骤2：批量图生图完成");
 }
 
-// 绑定事件
-submitBatchBtn.addEventListener("click", submitBatchTasks);
-queryBatchBtn.addEventListener("click", queryBatchTasks);
+// ====================== 步骤3：批量提交视频任务（仅视频）======================
+async function step3BatchSubmitVideo() {
+    step3VideoBtn.disabled = true;
+
+    for (let i = 0; i < taskList.length; i++) {
+        const task = taskList[i];
+        if (task.status !== "plaster_done" || !task.plasterUrl) continue;
+
+        try {
+            log(`===== 步骤3：提交第${i+1}张视频任务：${task.fileName} =====`);
+            const res = await fetch(VIDEO_API, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${API_KEY}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    prompt: VIDEO_PROMPT,
+                    image_urls: [task.plasterUrl],
+                    ...VIDEO_CONFIG
+                })
+            });
+
+            const data = await res.json();
+            const taskId = data?.data?.task_id;
+            if (!taskId) throw new Error("视频任务提交失败");
+
+            task.taskId = taskId;
+            task.status = "video_submitted";
+            log(`✅ 第${i+1}张视频任务提交成功：${taskId}`);
+            renderTaskList();
+        } catch (e) {
+            task.status = "failed";
+            log(`第${i+1}张视频任务提交失败：${e.message}`);
+            renderTaskList();
+        }
+    }
+
+    step3VideoBtn.disabled = false;
+    step4QueryBtn.disabled = false;
+    log("✅ 步骤3：批量视频任务提交完成");
+}
+
+// ====================== 步骤4：批量查询视频结果（仅查询）======================
+async function step4BatchQuery() {
+    step4QueryBtn.disabled = true;
+
+    for (let i = 0; i < taskList.length; i++) {
+        const task = taskList[i];
+        if (task.status !== "video_submitted" || !task.taskId) continue;
+
+        try {
+            log(`===== 步骤4：查询第${i+1}张视频任务：${task.taskId} =====`);
+            const res = await fetch(QUERY_API, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${API_KEY}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ task_id: task.taskId })
+            });
+
+            const data = await res.json();
+            const status = data.data?.status;
+            if (status === "done" && data.data?.video_url) {
+                task.videoUrl = data.data.video_url;
+                task.status = "done";
+                log(`✅ 第${i+1}张视频生成完成：${task.videoUrl}`);
+            }
+            renderTaskList();
+        } catch (e) {
+            task.status = "failed";
+            log(`第${i+1}张查询失败：${e.message}`);
+            renderTaskList();
+        }
+    }
+
+    step4QueryBtn.disabled = false;
+    log("✅ 步骤4：批量查询完成");
+}
+
+// ====================== 绑定事件 ======================
+step1UploadBtn.addEventListener("click", step1BatchUpload);
+step2Img2ImgBtn.addEventListener("click", step2BatchImg2Img);
+step3VideoBtn.addEventListener("click", step3BatchSubmitVideo);
+step4QueryBtn.addEventListener("click", step4BatchQuery);
 resetBtn.addEventListener("click", resetAll);
 </script>
 </body>
