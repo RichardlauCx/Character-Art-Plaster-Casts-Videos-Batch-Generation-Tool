@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【纯视频调试·二进制直传】即梦V3.0 图生视频</title>
+    <title>【纯视频·二进制直传·无坑版】即梦V3.0</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family: monospace}
         body{padding:20px;background:#f5f5f5;max-width:800px;margin:0 auto}
@@ -31,7 +31,7 @@
     <div id="result"></div>
 
 <script>
-// ====================== 【核心配置 · 100%对齐官方接口】======================
+// ====================== 【核心配置 · 100%对齐官方OpenAPI】======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
 const BASE = "https://api.302.ai";
 
@@ -39,10 +39,10 @@ const BASE = "https://api.302.ai";
 const VIDEO_API = `${BASE}/doubao/drawing/jimengv30`;
 const QUERY_API = `${BASE}/doubao/drawing/query_task`;
 
-// 官方必传参数（严格对齐）
+// 官方必传参数（严格对齐，无冗余）
 const CONFIG = {
   req_key: "jimeng_i2v_first_v30",    // 720P 图生视频首帧（官方枚举）
-  prompt: "石膏质感人物，流畅运镜，无抖动，无水印", // 精简提示词
+  prompt: "石膏质感人物，流畅运镜，无抖动，无水印", // 精简提示词（<400字）
   seed: -1,                           // 随机种子（官方默认）
   frames: 121                         // 5秒（官方固定值：24*5+1）
 };
@@ -55,35 +55,35 @@ const log = (msg) => {
   console.log(`[${t}]`, msg);
 };
 
-// ====================== 【1. 本地图片转二进制Base64（去前缀）】======================
-const fileToBinaryBase64 = (file) => {
+// ====================== 【1. 本地图片转纯二进制Base64（去前缀）】======================
+const fileToPureBinaryBase64 = (file) => {
   return new Promise((res, rej) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      // 核心：去掉data:image/png;base64,前缀，只保留二进制Base64
       const fullBase64 = e.target.result;
-      const binaryBase64 = fullBase64.replace(/^data:image\/\w+;base64,/, "");
-      log(`✅ 图片转二进制Base64完成（长度：${binaryBase64.length}）`);
-      res(binaryBase64);
+      // 🔴 核心：彻底去掉data:image/xxx;base64,前缀，只保留纯二进制字符串
+      const pureBinary = fullBase64.replace(/^data:image\/[a-zA-Z0-9+./]+;base64,/, "");
+      log(`✅ 图片转纯二进制Base64完成（长度：${pureBinary.length}，无任何前缀）`);
+      res(pureBinary);
     };
     reader.onerror = rej;
     reader.readAsDataURL(file);
   });
 };
 
-// ====================== 【2. 核心：创建视频任务（二进制直传）】======================
-const createVideoTask = async (binaryBase64) => {
-  log("→ 调用视频接口：创建任务（二进制直传）");
-  // 严格按照官方示例构造请求体，用binary_data_base64替代image_urls
-  const body = {
+// ====================== 【2. 核心：创建视频任务（仅用binary_data_base64）】======================
+const createVideoTask = async (pureBinaryBase64) => {
+  log("→ 调用视频接口：创建任务（仅二进制直传，无image_urls）");
+  // 🟢 严格按照官方接口，仅用binary_data_base64，彻底删除image_urls
+  const requestBody = {
     req_key: CONFIG.req_key,
     prompt: CONFIG.prompt,
     seed: CONFIG.seed,
     frames: CONFIG.frames,
-    binary_data_base64: [binaryBase64] // 官方支持的二进制参数，无需公网URL
+    binary_data_base64: [pureBinaryBase64] // 官方支持的二进制参数，无公网URL要求
   };
 
-  log(`请求参数：${JSON.stringify(body, null, 2)}`);
+  log(`请求参数（无image_urls）：${JSON.stringify(requestBody, null, 2)}`);
 
   const resp = await fetch(VIDEO_API, {
     method: "POST",
@@ -91,26 +91,26 @@ const createVideoTask = async (binaryBase64) => {
       "Authorization": `Bearer ${API_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(requestBody)
   });
 
-  const data = await resp.json();
-  log(`接口返回：${JSON.stringify(data, null, 2)}`);
+  const responseData = await resp.json();
+  log(`接口完整返回：${JSON.stringify(responseData, null, 2)}`);
 
-  if (data.code !== 10000 || !data.data?.task_id) {
-    throw new Error(`任务创建失败：${data.message || "未知错误"}`);
+  if (responseData.code !== 10000 || !responseData.data?.task_id) {
+    throw new Error(`任务创建失败：${responseData.message || "未知错误"}`);
   }
 
-  const task_id = data.data.task_id;
-  log(`✅ 任务创建成功！task_id: ${task_id}`);
-  return task_id;
+  const taskId = responseData.data.task_id;
+  log(`✅ 任务创建成功！task_id: ${taskId}`);
+  return taskId;
 };
 
 // ====================== 【3. 核心：轮询查询任务】======================
-const waitVideoResult = async (task_id) => {
+const waitVideoResult = async (taskId) => {
   log("→ 开始轮询任务状态（最多30次/90秒）");
   
-  for (let i=1; i<=30; i++) {
+  for (let i = 1; i <= 30; i++) {
     await new Promise(r => setTimeout(r, 3000));
     log(`轮询 ${i}/30`);
 
@@ -121,19 +121,19 @@ const waitVideoResult = async (task_id) => {
           "Authorization": `Bearer ${API_KEY}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ task_id })
+        body: JSON.stringify({ task_id: taskId })
       });
 
       const data = await resp.json();
       log(`轮询返回：${JSON.stringify(data, null, 2)}`);
 
-      // 成功：返回视频地址
+      // 成功：返回视频URL
       if (data.code === 10000 && data.data?.video_url) {
         log("🎉 视频生成完成！");
         return data.data.video_url;
       }
 
-      // 失败
+      // 任务失败
       if (data.data?.status === "failed") {
         throw new Error(`任务执行失败：${data.data?.error || "未知错误"}`);
       }
@@ -155,15 +155,15 @@ document.getElementById("start").onclick = async () => {
   document.getElementById("result").innerHTML = "";
 
   try {
-    log("=== 开始纯视频调试流程（二进制直传） ===");
-    const binaryBase64 = await fileToBinaryBase64(file);
-    const task_id = await createVideoTask(binaryBase64);
-    const video_url = await waitVideoResult(task_id);
+    log("=== 开始纯视频调试流程（二进制直传，无image_urls） ===");
+    const pureBinary = await fileToPureBinaryBase64(file);
+    const taskId = await createVideoTask(pureBinary);
+    const videoUrl = await waitVideoResult(taskId);
     
     document.getElementById("result").innerHTML = `
       <div class="result">
         ✅ 视频生成成功<br>
-        <video src="${video_url}" controls muted></video>
+        <video src="${videoUrl}" controls muted></video>
       </div>
     `;
     log("=== 全流程完成 ===");
