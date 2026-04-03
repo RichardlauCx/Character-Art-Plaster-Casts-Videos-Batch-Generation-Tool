@@ -1,194 +1,169 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>本地石膏图→一键生成视频（302自有存储·GitHub部署版）</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>石膏图转视频（官方上传接口版）</title>
+<script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-4xl mx-auto p-6 bg-gray-50">
-    <h1 class="text-2xl font-bold text-center mb-6">🎬 本地石膏图 → 一键生成视频（302自有存储版）</h1>
+<h1 class="text-2xl font-bold text-center mb-6">🎬 本地文件 → 官方上传 → 视频生成</h1>
 
-    <div class="bg-white p-6 rounded-lg shadow mb-6">
-        <label class="block mb-2 font-medium">选择本地石膏图文件（直接上传，自动转URL）：</label>
-        <input 
-            type="file" 
-            id="fileInput" 
-            accept="image/*"
-            class="w-full p-3 border rounded mb-4"
-        >
-        <button 
-            id="startBtn" 
-            class="bg-blue-600 text-white px-6 py-3 rounded w-full hover:bg-blue-700 disabled:bg-gray-400"
-            disabled
-        >
-            🚀 一键生成视频
-        </button>
-    </div>
+<div class="bg-white p-6 rounded-lg shadow mb-6">
+  <label class="block mb-2 font-medium">选择本地石膏图：</label>
+  <input type="file" id="fileInput" accept="image/*" class="w-full p-3 border rounded mb-4">
+  <button id="startBtn" class="bg-blue-600 text-white px-6 py-3 rounded w-full disabled:bg-gray-400" disabled>
+    🚀 开始生成
+  </button>
+</div>
 
-    <div class="bg-white p-6 rounded-lg shadow mb-6">
-        <h3 class="font-medium mb-2">运行日志</h3>
-        <div id="log" class="h-48 bg-gray-100 p-3 rounded text-sm mt-2 overflow-y-auto"></div>
-    </div>
+<div class="bg-white p-6 rounded-lg shadow mb-6">
+  <h3>运行日志</h3>
+  <div id="log" class="h-48 bg-gray-100 p-3 rounded text-sm mt-2 overflow-y-auto"></div>
+</div>
 
-    <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="font-medium mb-2">生成结果</h3>
-        <div id="result" class="mt-2"></div>
-    </div>
+<div class="bg-white p-6 rounded-lg shadow">
+  <h3>结果</h3>
+  <div id="result" class="mt-2"></div>
+</div>
 
 <script>
-// ====================== 固定配置（完全沿用你Coze的参数）======================
+// ====================== 你的配置 ======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
+
+// 官方上传接口（你提供的）
+const UPLOAD_API = "https://api.302.ai/302/upload-file";
+
+// 视频接口
 const VIDEO_API = "https://api.302.ai/doubao/drawing/jimengv30";
-const REQ_KEY = "jimeng_i2v_recamera_v30"; // 必传，解决missing req_key
+const REQ_KEY = "jimeng_i2v_recamera_v30";
 const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感无水印，无文字，静态图片转动态 平稳无抖动 在每次转动到一个视角时停留1-2秒左右展示一下再进行下步转动 视频运行是不能让人物看着出现变形（不能改变人物特征） 转动中可以眨一眨眼睛动一动头 让视频更生动自然";
 const VIDEO_CONFIG = { duration: 3, ratio: "1:1", fps: 24 };
-const POLL_INTERVAL = 3000;
-const POLL_MAX_TIMES = 30;
 
-// ====================== DOM元素 ======================
-const fileInput = document.getElementById('fileInput');
-const startBtn = document.getElementById('startBtn');
-const logBox = document.getElementById('log');
-const resultBox = document.getElementById('result');
+// ====================== 工具 ======================
+const $ = document.querySelector.bind(document);
+const fileInput = $("#fileInput");
+const startBtn = $("#startBtn");
+const logBox = $("#log");
+const resultBox = $("#result");
 
-// ====================== 日志工具 ======================
-function addLog(text) {
-    logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
-    logBox.scrollTop = logBox.scrollHeight;
+function log(text) {
+  logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
+  logBox.scrollTop = logBox.scrollHeight;
 }
 
-// ====================== 核心1：本地文件 → 302.ai自有存储 → 公网URL（零第三方依赖）======================
-async function uploadTo302(file) {
-    addLog("📤 正在上传本地图片到302.ai自有存储，生成公网URL...");
-    const formData = new FormData();
-    formData.append("file", file);
+// ====================== 官方文件上传（严格按你给的OpenAPI）======================
+async function uploadFile(file) {
+  log("📤 正在上传到官方接口...");
+  const form = new FormData();
+  form.append("file", file);
 
-    try {
-        const res = await fetch("https://api.302.ai/doubao/files/upload", {
-            method: "POST",
-            headers: { 
-                "Authorization": `Bearer ${API_KEY}`
-            },
-            body: formData
-        });
+  const res = await fetch(UPLOAD_API, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${API_KEY}`
+      // 不写 Content-Type，浏览器自动生成 multipart/form-data
+    },
+    body: form
+  });
 
-        if (!res.ok) throw new Error(`302文件上传失败，HTTP状态：${res.status}`);
-        const data = await res.json();
-        const imageUrl = data?.data?.url;
-        if (!imageUrl || !imageUrl.startsWith("https://")) throw new Error(`302返回异常：${JSON.stringify(data)}`);
+  const data = await res.json();
+  log(`上传返回：${JSON.stringify(data)}`);
 
-        addLog(`✅ 图片上传完成！公网URL：${imageUrl}`);
-        return imageUrl;
-    } catch (e) {
-        addLog(`❌ 302文件上传错误：${e.message}`);
-        throw e;
-    }
+  if (data.code !== 200) {
+    throw new Error(data.message || "上传失败");
+  }
+
+  const imgUrl = data.data;
+  log(`✅ 获得官方URL：${imgUrl}`);
+  return imgUrl;
 }
 
-// ====================== 核心2：视频生成（参数全修复，兼容同步/异步）======================
-async function generateVideo(imageUrl) {
-    addLog("🚀 提交视频生成任务（参数已全修复）...");
-    const requestBody = {
-        req_key: REQ_KEY,
-        prompt: VIDEO_PROMPT,
-        image_urls: [imageUrl], // 修正为数组格式，解决参数错误
-        duration: VIDEO_CONFIG.duration,
-        ratio: VIDEO_CONFIG.ratio,
-        fps: VIDEO_CONFIG.fps
-    };
-    addLog(`📤 请求参数：${JSON.stringify(requestBody, null, 2)}`);
+// ====================== 视频生成 ======================
+async function generateVideo(imgUrl) {
+  log("🚀 提交视频任务...");
+  const body = {
+    req_key: REQ_KEY,
+    prompt: VIDEO_PROMPT,
+    image_urls: [imgUrl],
+    duration: VIDEO_CONFIG.duration,
+    ratio: VIDEO_CONFIG.ratio,
+    fps: VIDEO_CONFIG.fps
+  };
 
-    const res = await fetch(VIDEO_API, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${API_KEY}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(requestBody)
-    });
+  const res = await fetch(VIDEO_API, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
 
-    addLog(`📥 接口响应状态：${res.status} ${res.statusText}`);
-    const responseText = await res.text();
-    addLog(`📥 完整响应：${responseText}`);
-    
-    let data;
-    try { data = JSON.parse(responseText); } 
-    catch (e) { throw new Error(`响应解析失败：${responseText}`); }
+  const data = await res.json();
+  log(`视频接口返回：${JSON.stringify(data)}`);
 
-    // 同步返回（Coze原逻辑）
-    if (data?.data?.[0]?.url) {
-        const videoUrl = data.data[0].url;
-        addLog(`✅ 同步生成成功，视频URL：${videoUrl}`);
-        return videoUrl;
+  // 同步返回
+  if (data?.data?.[0]?.url) {
+    return data.data[0].url;
+  }
+
+  // 异步轮询
+  if (data?.data?.task_id) {
+    const taskId = data.data.task_id;
+    log(`⏳ 异步任务：${taskId}，开始轮询`);
+
+    for (let i = 0; i < 25; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const poll = await fetch(`https://api.302.ai/doubao/tasks/${taskId}`, {
+        headers: { "Authorization": `Bearer ${API_KEY}` }
+      });
+      const p = await poll.json();
+
+      if (p.data.status === "succeeded") {
+        return p.data.url;
+      }
+      if (p.data.status === "failed") {
+        throw new Error("任务失败");
+      }
+      log(`第${i+1}次轮询：${p.data.status}`);
     }
-    // 异步轮询（302.ai原生逻辑）
-    if (data?.data?.task_id) {
-        const taskId = data.data.task_id;
-        addLog(`⏳ 任务ID：${taskId}，开始轮询状态...`);
-        
-        for (let i=0; i<POLL_MAX_TIMES; i++) {
-            await new Promise(r => setTimeout(r, POLL_INTERVAL));
-            const poll = await fetch(`https://api.302.ai/doubao/tasks/${taskId}`, {
-                headers: { Authorization: `Bearer ${API_KEY}` }
-            });
-            const pollData = await poll.json();
-            const status = pollData?.data?.status;
-            
-            addLog(`🔄 第${i+1}次轮询：${status}`);
-            if (status === "succeeded") {
-                const videoUrl = pollData.data.url;
-                addLog(`✅ 异步生成成功，视频URL：${videoUrl}`);
-                return videoUrl;
-            }
-            if (status === "failed") throw new Error(`任务失败：${pollData.data.error?.message || "未知错误"}`);
-        }
-        throw new Error("生成超时：超过最大轮询次数");
-    }
-    // 错误处理
-    const errorMsg = data?.error?.message || data?.message || JSON.stringify(data);
-    throw new Error(`视频生成失败：${errorMsg}`);
+    throw new Error("超时");
+  }
+
+  throw new Error("未获取到视频地址");
 }
 
-// ====================== 一键启动 ======================
-fileInput.addEventListener('change', () => {
-    startBtn.disabled = !fileInput.files[0];
+// ====================== 启动 ======================
+fileInput.addEventListener("change", () => {
+  startBtn.disabled = !fileInput.files[0];
 });
 
-startBtn.addEventListener('click', async () => {
-    const file = fileInput.files[0];
-    if (!file) return;
+startBtn.addEventListener("click", async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
 
-    startBtn.disabled = true;
-    resultBox.innerHTML = '';
-    
-    try {
-        // 1. 本地上传 → 302自有存储 → 自动生成公网URL
-        const imageUrl = await uploadTo302(file);
-        // 2. 自动生成视频
-        const videoUrl = await generateVideo(imageUrl);
-        
-        // 渲染结果
-        resultBox.innerHTML = `
-            <div class="p-4 bg-green-50 rounded border border-green-200">
-                <p class="text-green-700 font-bold mb-3">✅ 视频生成成功！</p>
-                <video controls class="w-full rounded mb-2">
-                    <source src="${videoUrl}" type="video/mp4">
-                </video>
-                <a href="${videoUrl}" target="_blank" class="text-blue-600 hover:underline">🔗 打开视频原链接</a>
-            </div>
-        `;
-        addLog("🎉 全部流程完成！");
-    } catch (e) {
-        addLog(`❌ 最终失败：${e.message}`);
-        resultBox.innerHTML = `
-            <div class="p-4 bg-red-50 rounded border border-red-200">
-                <p class="text-red-700 font-bold">❌ 失败：${e.message}</p>
-            </div>
-        `;
-    } finally {
-        startBtn.disabled = false;
-    }
+  startBtn.disabled = true;
+  resultBox.innerHTML = "";
+
+  try {
+    const imgUrl = await uploadFile(file);
+    const videoUrl = await generateVideo(imgUrl);
+
+    resultBox.innerHTML = `
+      <p class="text-green-600 font-bold">✅ 成功</p>
+      <video controls class="w-full rounded mt-2">
+        <source src="${videoUrl}" type="video/mp4">
+      </video>
+      <a href="${videoUrl}" target="_blank" class="text-blue-500">打开视频</a>
+    `;
+    log("🎉 全部完成");
+  } catch (e) {
+    log(`❌ 失败：${e.message}`);
+    resultBox.innerHTML = `<p class="text-red-600">失败：${e.message}</p>`;
+  } finally {
+    startBtn.disabled = false;
+  }
 });
 </script>
 </body>
