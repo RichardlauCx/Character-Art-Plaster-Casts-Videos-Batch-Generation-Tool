@@ -3,155 +3,240 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>石膏图转视频（分离操作版）</title>
+<title>石膏图批量转视频（即梦3.0 Pro）</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<style>
-  .btn-group{gap:8px; display:flex; margin-top:10px}
-  button{padding:12px; border-radius:8px; border:none; cursor:pointer}
-  .primary{background:#0071e3; color:white}
-  .success{background:#34c759; color:white}
-  .default{background:#8e8e93; color:white}
-</style>
 </head>
-<body class="max-w-4xl mx-auto p-6 bg-gray-50">
-<h1 class="text-2xl font-bold text-center mb-6">🎬 即梦3.0 Pro - 分离操作版</h1>
+<body class="max-w-5xl mx-auto p-6 bg-gray-50">
+<h1 class="text-2xl font-bold text-center mb-6">🎬 批量石膏图 → 即梦3.0 Pro 视频生成</h1>
 
+<!-- 批量上传区域 -->
 <div class="bg-white p-6 rounded-lg shadow mb-6">
-  <label class="block mb-2 font-medium">选择本地图片：</label>
-  <input type="file" id="fileInput" accept="image/*" class="w-full p-3 border rounded mb-4">
-  <div class="btn-group">
-    <button id="submitBtn" class="primary">上传并提交视频任务</button>
-    <button id="queryBtn" class="success" disabled>查询任务结果</button>
-    <button id="resetBtn" class="default">重置</button>
-  </div>
+    <label class="block mb-2 font-medium">批量选择本地石膏图（可多选）：</label>
+    <input type="file" id="fileInput" accept="image/*" multiple 
+           class="w-full p-3 border rounded mb-4">
+    <div class="flex gap-3">
+        <button id="submitBatchBtn" class="flex-1 bg-blue-600 text-white py-3 rounded">
+            🚀 批量提交生成任务
+        </button>
+        <button id="queryBatchBtn" class="flex-1 bg-green-600 text-white py-3 rounded">
+            🔍 批量查询所有任务
+        </button>
+        <button id="resetBtn" class="flex-1 bg-gray-500 text-white py-3 rounded">
+            🔄 重置全部
+        </button>
+    </div>
 </div>
 
-<!-- 任务ID展示 -->
-<div class="bg-white p-6 rounded-lg shadow mb-6" id="taskBox" style="display:none;">
-  <p class="font-bold">当前任务ID：<span id="taskId"></span></p>
-  <p class="text-gray-500 text-sm">等待生成完成后，点击「查询任务结果」</p>
-</div>
-
+<!-- 日志区域 -->
 <div class="bg-white p-6 rounded-lg shadow mb-6">
-  <h3>运行日志</h3>
-  <div id="log" class="h-48 bg-gray-100 p-3 rounded text-sm mt-2 overflow-y-auto"></div>
+    <h3 class="font-medium mb-2">运行日志</h3>
+    <div id="log" class="h-32 bg-gray-100 p-3 rounded text-sm overflow-y-auto"></div>
 </div>
 
+<!-- 批量任务列表 -->
 <div class="bg-white p-6 rounded-lg shadow">
-  <h3>视频结果</h3>
-  <div id="result" class="mt-2"></div>
+    <h3 class="font-medium mb-4">批量任务列表</h3>
+    <div id="taskList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
 </div>
 
 <script>
-// 官方配置
+// ====================== 官方接口配置（完全用你提供的文档）======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
 const UPLOAD_API = "https://api.302.ai/302/upload-file";
 const VIDEO_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro";
 const QUERY_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro_result";
+
 const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感";
 const VIDEO_CONFIG = { frames: 121, aspect_ratio: "1:1" };
 
-// DOM
+// ====================== 全局变量 ======================
+let taskList = []; // 批量任务列表
 const fileInput = document.getElementById("fileInput");
-const submitBtn = document.getElementById("submitBtn");
-const queryBtn = document.getElementById("queryBtn");
+const submitBatchBtn = document.getElementById("submitBatchBtn");
+const queryBatchBtn = document.getElementById("queryBatchBtn");
 const resetBtn = document.getElementById("resetBtn");
-const taskBox = document.getElementById("taskBox");
-const taskIdSpan = document.getElementById("taskId");
 const logBox = document.getElementById("log");
-const resultBox = document.getElementById("result");
+const taskListDom = document.getElementById("taskList");
 
-let currentTaskId = "";
-
-// 日志
+// 日志输出
 function log(text) {
-  logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
-  logBox.scrollTop = logBox.scrollHeight;
+    logBox.innerHTML += `[${new Date().toLocaleTimeString()}] ${text}\n`;
+    logBox.scrollTop = logBox.scrollHeight;
 }
 
 // 重置
-function reset(){
-  currentTaskId = "";
-  fileInput.value = "";
-  taskBox.style.display = "none";
-  queryBtn.disabled = true;
-  submitBtn.disabled = false;
-  resultBox.innerHTML = "";
-  logBox.innerHTML = "";
+function resetAll() {
+    taskList = [];
+    fileInput.value = "";
+    taskListDom.innerHTML = "";
+    logBox.innerHTML = "";
 }
 
-// 1. 上传图片
+// 渲染任务卡片
+function renderTaskList() {
+    taskListDom.innerHTML = "";
+    taskList.forEach((task, index) => {
+        const card = document.createElement("div");
+        card.className = "border rounded p-4 bg-white shadow-sm";
+        
+        let statusText = "";
+        let statusColor = "";
+        if(task.status === "pending") {
+            statusText = "待查询";
+            statusColor = "text-gray-600";
+        } else if(task.status === "processing") {
+            statusText = "生成中";
+            statusColor = "text-blue-600";
+        } else if(task.status === "succeeded") {
+            statusText = "已完成";
+            statusColor = "text-green-600";
+        } else if(task.status === "failed") {
+            statusText = "生成失败";
+            statusColor = "text-red-600";
+        }
+
+        card.innerHTML = `
+            <p class="text-sm font-medium mb-1">文件：${task.fileName}</p>
+            <p class="text-xs mb-1 ${statusColor}">状态：${statusText}</p>
+            <p class="text-xs text-gray-500 break-all mb-2">TaskID：${task.taskId || "未生成"}</p>
+            ${task.videoUrl ? `
+            <div class="mt-2">
+                <video controls class="w-full h-32 object-cover rounded mb-1">
+                    <source src="${task.videoUrl}" type="video/mp4">
+                </video>
+                <p class="text-xs text-blue-600 break-all">URL：${task.videoUrl}</p>
+                <button onclick="navigator.clipboard.writeText('${task.videoUrl}')" 
+                        class="text-xs bg-gray-100 px-2 py-1 rounded mt-1">
+                    复制链接
+                </button>
+            </div>
+            ` : ""}
+        `;
+        taskListDom.appendChild(card);
+    });
+}
+
+// ====================== 1. 官方文件上传 ======================
 async function uploadFile(file) {
-  log("📤 上传图片到官方接口...");
-  const form = new FormData();
-  form.append("file", file);
-  const res = await fetch(UPLOAD_API, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}` }, body: form });
-  const data = await res.json();
-  if (data.code !== 200) throw new Error(data.message);
-  log(`✅ 图片URL：${data.data}`);
-  return data.data;
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(UPLOAD_API, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${API_KEY}` },
+        body: form
+    });
+    const data = await res.json();
+    if(data.code !== 200) throw new Error(data.message);
+    return data.data;
 }
 
-// 2. 提交任务
-async function createTask(imgUrl) {
-  log("🚀 提交视频生成任务...");
-  const res = await fetch(VIDEO_API, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: VIDEO_PROMPT, image_urls: [imgUrl], ...VIDEO_CONFIG })
-  });
-  const data = await res.json();
-  const taskId = data?.data?.task_id;
-  if (!taskId) throw new Error("任务提交失败");
-  log(`✅ 任务提交成功！ID：${taskId}`);
-  return taskId;
+// ====================== 2. 提交单个视频任务 ======================
+async function createSingleTask(imgUrl) {
+    const res = await fetch(VIDEO_API, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            prompt: VIDEO_PROMPT,
+            image_urls: [imgUrl],
+            ...VIDEO_CONFIG
+        })
+    });
+    const data = await res.json();
+    return data?.data?.task_id;
 }
 
-// 3. 查询任务（手动）
-async function queryTask() {
-  log("🔍 手动查询任务状态...");
-  const res = await fetch(QUERY_API, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ task_id: currentTaskId })
-  });
-  const data = await res.json();
-  const status = data.data.status;
-  log(`📊 当前状态：${status}`);
+// ====================== 3. 批量提交任务 ======================
+async function submitBatchTasks() {
+    const files = Array.from(fileInput.files);
+    if(files.length === 0) {
+        alert("请先选择图片");
+        return;
+    }
 
-  if(status === "succeeded"){
-    const videoUrl = data.data.video_url;
-    resultBox.innerHTML = `
-      <p class="text-green-600 font-bold">✅ 生成成功！</p>
-      <video controls class="w-full rounded mt-2"><source src="${videoUrl}" type="video/mp4"></video>
-      <a href="${videoUrl}" target="_blank" class="text-blue-500">打开视频</a>
-    `;
-  }else if(status === "failed"){
-    resultBox.innerHTML = `<p class="text-red-600">❌ 生成失败</p>`;
-  }else{
-    resultBox.innerHTML = `<p class="text-orange-600">⏳ 正在生成中，请稍后再查询</p>`;
-  }
+    submitBatchBtn.disabled = true;
+    taskList = files.map(file => ({
+        fileName: file.name,
+        file: file,
+        taskId: "",
+        status: "pending",
+        videoUrl: ""
+    }));
+    renderTaskList();
+
+    // 串行批量提交（防止API限流）
+    for(let i=0; i<taskList.length; i++) {
+        try {
+            log(`正在处理第${i+1}张：${taskList[i].fileName}`);
+            const imgUrl = await uploadFile(taskList[i].file);
+            const taskId = await createSingleTask(imgUrl);
+            taskList[i].taskId = taskId;
+            taskList[i].status = "processing";
+            log(`第${i+1}张任务提交成功：${taskId}`);
+            renderTaskList();
+        } catch(e) {
+            taskList[i].status = "failed";
+            log(`第${i+1}张处理失败：${e.message}`);
+            renderTaskList();
+        }
+    }
+
+    submitBatchBtn.disabled = false;
+    log("✅ 批量任务提交完成");
 }
 
-// 事件
-submitBtn.onclick = async () => {
-  const file = fileInput.files[0];
-  if(!file){ alert("请选择图片"); return; }
-  submitBtn.disabled = true;
-  try {
-    const imgUrl = await uploadFile(file);
-    currentTaskId = await createTask(imgUrl);
-    taskIdSpan.innerText = currentTaskId;
-    taskBox.style.display = "block";
-    queryBtn.disabled = false;
-  }catch(e){
-    log(`❌ 错误：${e.message}`);
-    submitBtn.disabled = false;
-  }
-};
+// ====================== 4. 查询单个任务 ======================
+async function querySingleTask(taskId) {
+    const res = await fetch(QUERY_API, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ task_id: taskId })
+    });
+    return await res.json();
+}
 
-queryBtn.onclick = queryTask;
-resetBtn.onclick = reset;
+// ====================== 5. 批量查询所有任务 ======================
+async function queryBatchTasks() {
+    if(taskList.length === 0) {
+        alert("暂无任务可查询");
+        return;
+    }
+
+    queryBatchBtn.disabled = true;
+    for(let i=0; i<taskList.length; i++) {
+        const task = taskList[i];
+        if(!task.taskId || task.status === "succeeded") continue;
+
+        try {
+            log(`查询第${i+1}张任务：${task.taskId}`);
+            const res = await querySingleTask(task.taskId);
+            const status = res.data.status;
+            task.status = status;
+
+            if(status === "succeeded") {
+                task.videoUrl = res.data.video_url;
+                log(`第${i+1}张任务完成：${task.videoUrl}`);
+            }
+            renderTaskList();
+        } catch(e) {
+            task.status = "failed";
+            log(`第${i+1}张查询失败：${e.message}`);
+            renderTaskList();
+        }
+    }
+    queryBatchBtn.disabled = false;
+    log("✅ 批量查询完成");
+}
+
+// ====================== 绑定事件 ======================
+submitBatchBtn.addEventListener("click", submitBatchTasks);
+queryBatchBtn.addEventListener("click", queryBatchTasks);
+resetBtn.addEventListener("click", resetAll);
 </script>
 </body>
 </html>
