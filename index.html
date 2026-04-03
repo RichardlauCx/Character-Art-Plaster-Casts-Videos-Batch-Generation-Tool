@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>石膏图转视频（官方上传接口版）</title>
+<title>石膏图转视频（官方上传接口·修复版）</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-4xl mx-auto p-6 bg-gray-50">
@@ -30,11 +30,7 @@
 <script>
 // ====================== 你的配置 ======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
-
-// 官方上传接口（你提供的）
 const UPLOAD_API = "https://api.302.ai/302/upload-file";
-
-// 视频接口
 const VIDEO_API = "https://api.302.ai/doubao/drawing/jimengv30";
 const REQ_KEY = "jimeng_i2v_recamera_v30";
 const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感无水印，无文字，静态图片转动态 平稳无抖动 在每次转动到一个视角时停留1-2秒左右展示一下再进行下步转动 视频运行是不能让人物看着出现变形（不能改变人物特征） 转动中可以眨一眨眼睛动一动头 让视频更生动自然";
@@ -52,7 +48,7 @@ function log(text) {
   logBox.scrollTop = logBox.scrollHeight;
 }
 
-// ====================== 官方文件上传（严格按你给的OpenAPI）======================
+// ====================== 官方文件上传（完全正常，无修改）======================
 async function uploadFile(file) {
   log("📤 正在上传到官方接口...");
   const form = new FormData();
@@ -62,7 +58,6 @@ async function uploadFile(file) {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${API_KEY}`
-      // 不写 Content-Type，浏览器自动生成 multipart/form-data
     },
     body: form
   });
@@ -79,7 +74,7 @@ async function uploadFile(file) {
   return imgUrl;
 }
 
-// ====================== 视频生成 ======================
+// ====================== 【核心修复：视频生成+轮询逻辑】======================
 async function generateVideo(imgUrl) {
   log("🚀 提交视频任务...");
   const body = {
@@ -103,38 +98,75 @@ async function generateVideo(imgUrl) {
   const data = await res.json();
   log(`视频接口返回：${JSON.stringify(data)}`);
 
-  // 同步返回
+  // 1. 同步返回场景（直接拿到视频URL）
   if (data?.data?.[0]?.url) {
+    log("✅ 同步生成成功，直接获取视频URL");
     return data.data[0].url;
   }
 
-  // 异步轮询
-  if (data?.data?.task_id) {
-    const taskId = data.data.task_id;
-    log(`⏳ 异步任务：${taskId}，开始轮询`);
-
-    for (let i = 0; i < 25; i++) {
-      await new Promise(r => setTimeout(r, 3000));
-      const poll = await fetch(`https://api.302.ai/doubao/tasks/${taskId}`, {
-        headers: { "Authorization": `Bearer ${API_KEY}` }
-      });
-      const p = await poll.json();
-
-      if (p.data.status === "succeeded") {
-        return p.data.url;
-      }
-      if (p.data.status === "failed") {
-        throw new Error("任务失败");
-      }
-      log(`第${i+1}次轮询：${p.data.status}`);
-    }
-    throw new Error("超时");
+  // 2. 异步任务场景（需要轮询，核心修复在这里）
+  const taskId = data?.data?.task_id;
+  if (!taskId) {
+    throw new Error(`任务提交失败，未获取到task_id：${JSON.stringify(data)}`);
   }
 
-  throw new Error("未获取到视频地址");
+  log(`⏳ 异步任务：${taskId}，开始轮询状态`);
+  const taskUrl = `https://api.302.ai/doubao/tasks/${taskId}`;
+  const maxRetries = 30; // 最多轮询30次（90秒）
+  const retryDelay = 3000; // 每次间隔3秒
+
+  for (let i = 0; i < maxRetries; i++) {
+    await new Promise(r => setTimeout(r, retryDelay));
+
+    try {
+      // 【修复1：先判断响应状态，非200直接重试，不解析】
+      const pollRes = await fetch(taskUrl, {
+        headers: { "Authorization": `Bearer ${API_KEY}` }
+      });
+
+      if (!pollRes.ok) {
+        log(`⚠️ 第${i+1}次轮询：服务暂时不可用（${pollRes.status}），3秒后重试`);
+        continue; // 遇到503/500等错误，直接重试，不崩溃
+      }
+
+      const pollData = await pollRes.json();
+      // 【修复2：用可选链?. 彻底避免空指针报错】
+      const status = pollData?.data?.status;
+
+      if (!status) {
+        log(`⚠️ 第${i+1}次轮询：状态异常，响应：${JSON.stringify(pollData)}，3秒后重试`);
+        continue;
+      }
+
+      log(`🔄 第${i+1}次轮询：任务状态 = ${status}`);
+
+      // 任务成功
+      if (status === "succeeded") {
+        const videoUrl = pollData?.data?.url;
+        if (!videoUrl) throw new Error("任务成功但未获取到视频URL");
+        log("✅ 异步生成成功，获取视频URL");
+        return videoUrl;
+      }
+
+      // 任务失败
+      if (status === "failed") {
+        const errorMsg = pollData?.data?.error?.message || "任务执行失败";
+        throw new Error(errorMsg);
+      }
+
+      // 任务处理中（pending/processing），继续轮询
+    } catch (e) {
+      log(`⚠️ 第${i+1}次轮询异常：${e.message}，3秒后重试`);
+      // 【修复3：捕获轮询中的异常，不崩溃，继续重试】
+      continue;
+    }
+  }
+
+  // 轮询超时
+  throw new Error(`视频生成超时：最多轮询${maxRetries}次（${maxRetries * retryDelay / 1000}秒）`);
 }
 
-// ====================== 启动 ======================
+// ====================== 启动（无修改）======================
 fileInput.addEventListener("change", () => {
   startBtn.disabled = !fileInput.files[0];
 });
