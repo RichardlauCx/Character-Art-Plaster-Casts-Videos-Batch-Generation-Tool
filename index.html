@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>石膏图转视频（官方上传接口·修复版）</title>
+<title>石膏图转视频（即梦3.0 Pro稳定版）</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="max-w-4xl mx-auto p-6 bg-gray-50">
-<h1 class="text-2xl font-bold text-center mb-6">🎬 本地文件 → 官方上传 → 视频生成</h1>
+<h1 class="text-2xl font-bold text-center mb-6">🎬 本地文件 → 官方上传 → 即梦3.0 Pro视频生成</h1>
 
 <div class="bg-white p-6 rounded-lg shadow mb-6">
   <label class="block mb-2 font-medium">选择本地石膏图：</label>
   <input type="file" id="fileInput" accept="image/*" class="w-full p-3 border rounded mb-4">
   <button id="startBtn" class="bg-blue-600 text-white px-6 py-3 rounded w-full disabled:bg-gray-400" disabled>
-    🚀 开始生成
+    🚀 开始生成（5秒高清视频）
   </button>
 </div>
 
@@ -28,15 +28,23 @@
 </div>
 
 <script>
-// ====================== 你的配置 ======================
+// ====================== 你的配置（仅修改视频相关，上传完全不变）======================
 const API_KEY = "sk-zI5dAbQjuJZQboKJp8pwE6lStKLOn7kUR2X9SBATVnSXP2f0";
 const UPLOAD_API = "https://api.302.ai/302/upload-file";
-const VIDEO_API = "https://api.302.ai/doubao/drawing/jimengv30";
-const REQ_KEY = "jimeng_i2v_recamera_v30";
-const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感无水印，无文字，静态图片转动态 平稳无抖动 在每次转动到一个视角时停留1-2秒左右展示一下再进行下步转动 视频运行是不能让人物看着出现变形（不能改变人物特征） 转动中可以眨一眨眼睛动一动头 让视频更生动自然";
-const VIDEO_CONFIG = { duration: 3, ratio: "1:1", fps: 24 };
 
-// ====================== 工具 ======================
+// ✅ 换用新的即梦3.0 Pro接口（解决老接口503问题）
+const VIDEO_API = "https://api.302.ai/doubao/drawing/jimeng_ti2v_v30_pro";
+const VIDEO_PROMPT = "将参考图片生成视频 视频要从侧面开始 转动到正上方 再转动到另一边的正侧方 再转到正脸 最后视频推近展示脸部特写 转动过程中脸要始终在画面里呈现 不要背对画面 丝滑蓬松长发 皮肤白净无杂色 小幅转动 流畅运镜 柔和光影 石膏质感无水印，无文字，静态图片转动态 平稳无抖动 在每次转动到一个视角时停留1-2秒左右展示一下再进行下步转动 视频运行是不能让人物看着出现变形（不能改变人物特征） 转动中可以眨一眨眼睛动一动头 让视频更生动自然";
+
+// ✅ 新接口参数（严格按官方文档）
+// frames: 121 = 5秒（24*5+1），241 = 10秒；新接口仅支持5/10秒，不支持3秒
+const VIDEO_CONFIG = { frames: 121, aspect_ratio: "1:1", seed: -1 };
+
+// ✅ 优化轮询策略：指数退避（避免频繁请求触发503）+ 最多20次（足够5秒视频生成）
+const POLL_DELAYS = [3000, 5000, 8000, 10000, 15000]; // 轮询间隔：3s→5s→8s→10s→15s
+const POLL_MAX_TIMES = 20;
+
+// ====================== 工具（完全不变）======================
 const $ = document.querySelector.bind(document);
 const fileInput = $("#fileInput");
 const startBtn = $("#startBtn");
@@ -48,7 +56,7 @@ function log(text) {
   logBox.scrollTop = logBox.scrollHeight;
 }
 
-// ====================== 官方文件上传（完全正常，无修改）======================
+// ====================== 官方文件上传（完全不变，已验证通）======================
 async function uploadFile(file) {
   log("📤 正在上传到官方接口...");
   const form = new FormData();
@@ -56,35 +64,31 @@ async function uploadFile(file) {
 
   const res = await fetch(UPLOAD_API, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${API_KEY}`
-    },
+    headers: { "Authorization": `Bearer ${API_KEY}` },
     body: form
   });
 
   const data = await res.json();
   log(`上传返回：${JSON.stringify(data)}`);
 
-  if (data.code !== 200) {
-    throw new Error(data.message || "上传失败");
-  }
-
+  if (data.code !== 200) throw new Error(data.message || "上传失败");
   const imgUrl = data.data;
   log(`✅ 获得官方URL：${imgUrl}`);
   return imgUrl;
 }
 
-// ====================== 【核心修复：视频生成+轮询逻辑】======================
+// ====================== 【核心优化：新Pro接口+智能轮询】======================
 async function generateVideo(imgUrl) {
-  log("🚀 提交视频任务...");
-  const body = {
-    req_key: REQ_KEY,
+  log("🚀 提交即梦3.0 Pro视频任务...");
+  // ✅ 严格按新接口文档构造请求体（去掉老接口的req_key，适配新参数）
+  const requestBody = {
     prompt: VIDEO_PROMPT,
-    image_urls: [imgUrl],
-    duration: VIDEO_CONFIG.duration,
-    ratio: VIDEO_CONFIG.ratio,
-    fps: VIDEO_CONFIG.fps
+    image_urls: [imgUrl], // 新接口要求数组，仅传1张
+    frames: VIDEO_CONFIG.frames,
+    aspect_ratio: VIDEO_CONFIG.aspect_ratio,
+    seed: VIDEO_CONFIG.seed
   };
+  log(`📤 请求参数：${JSON.stringify(requestBody, null, 2)}`);
 
   const res = await fetch(VIDEO_API, {
     method: "POST",
@@ -92,49 +96,42 @@ async function generateVideo(imgUrl) {
       "Authorization": `Bearer ${API_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(requestBody)
   });
 
   const data = await res.json();
   log(`视频接口返回：${JSON.stringify(data)}`);
 
-  // 1. 同步返回场景（直接拿到视频URL）
-  if (data?.data?.[0]?.url) {
-    log("✅ 同步生成成功，直接获取视频URL");
-    return data.data[0].url;
-  }
-
-  // 2. 异步任务场景（需要轮询，核心修复在这里）
+  // 提取task_id（新接口返回结构）
   const taskId = data?.data?.task_id;
-  if (!taskId) {
-    throw new Error(`任务提交失败，未获取到task_id：${JSON.stringify(data)}`);
-  }
+  if (!taskId) throw new Error(`任务提交失败：${JSON.stringify(data)}`);
+  log(`⏳ 异步任务ID：${taskId}，开始智能轮询`);
 
-  log(`⏳ 异步任务：${taskId}，开始轮询状态`);
   const taskUrl = `https://api.302.ai/doubao/tasks/${taskId}`;
-  const maxRetries = 30; // 最多轮询30次（90秒）
-  const retryDelay = 3000; // 每次间隔3秒
 
-  for (let i = 0; i < maxRetries; i++) {
-    await new Promise(r => setTimeout(r, retryDelay));
+  // ✅ 智能轮询：指数退避+异常重试+空值防护
+  for (let i = 0; i < POLL_MAX_TIMES; i++) {
+    // 按指数退避取间隔，超过数组长度用最后一个
+    const delay = POLL_DELAYS[Math.min(i, POLL_DELAYS.length - 1)];
+    await new Promise(r => setTimeout(r, delay));
 
     try {
-      // 【修复1：先判断响应状态，非200直接重试，不解析】
       const pollRes = await fetch(taskUrl, {
         headers: { "Authorization": `Bearer ${API_KEY}` }
       });
 
+      // 处理服务不可用（503/500），自动重试
       if (!pollRes.ok) {
-        log(`⚠️ 第${i+1}次轮询：服务暂时不可用（${pollRes.status}），3秒后重试`);
-        continue; // 遇到503/500等错误，直接重试，不崩溃
+        log(`⚠️ 第${i+1}次轮询：服务暂时不可用（${pollRes.status}），${delay/1000}秒后重试`);
+        continue;
       }
 
       const pollData = await pollRes.json();
-      // 【修复2：用可选链?. 彻底避免空指针报错】
       const status = pollData?.data?.status;
 
+      // 空值防护，避免undefined报错
       if (!status) {
-        log(`⚠️ 第${i+1}次轮询：状态异常，响应：${JSON.stringify(pollData)}，3秒后重试`);
+        log(`⚠️ 第${i+1}次轮询：状态异常，${delay/1000}秒后重试`);
         continue;
       }
 
@@ -144,7 +141,7 @@ async function generateVideo(imgUrl) {
       if (status === "succeeded") {
         const videoUrl = pollData?.data?.url;
         if (!videoUrl) throw new Error("任务成功但未获取到视频URL");
-        log("✅ 异步生成成功，获取视频URL");
+        log("✅ 视频生成完成！");
         return videoUrl;
       }
 
@@ -154,19 +151,18 @@ async function generateVideo(imgUrl) {
         throw new Error(errorMsg);
       }
 
-      // 任务处理中（pending/processing），继续轮询
+      // 任务处理中，继续轮询
     } catch (e) {
-      log(`⚠️ 第${i+1}次轮询异常：${e.message}，3秒后重试`);
-      // 【修复3：捕获轮询中的异常，不崩溃，继续重试】
+      log(`⚠️ 第${i+1}次轮询异常：${e.message}，${delay/1000}秒后重试`);
       continue;
     }
   }
 
   // 轮询超时
-  throw new Error(`视频生成超时：最多轮询${maxRetries}次（${maxRetries * retryDelay / 1000}秒）`);
+  throw new Error(`视频生成超时：最多轮询${POLL_MAX_TIMES}次`);
 }
 
-// ====================== 启动（无修改）======================
+// ====================== 启动（完全不变）======================
 fileInput.addEventListener("change", () => {
   startBtn.disabled = !fileInput.files[0];
 });
@@ -183,13 +179,13 @@ startBtn.addEventListener("click", async () => {
     const videoUrl = await generateVideo(imgUrl);
 
     resultBox.innerHTML = `
-      <p class="text-green-600 font-bold">✅ 成功</p>
+      <p class="text-green-600 font-bold">✅ 5秒高清视频生成成功！</p>
       <video controls class="w-full rounded mt-2">
         <source src="${videoUrl}" type="video/mp4">
       </video>
-      <a href="${videoUrl}" target="_blank" class="text-blue-500">打开视频</a>
+      <a href="${videoUrl}" target="_blank" class="text-blue-500">打开视频原链接</a>
     `;
-    log("🎉 全部完成");
+    log("🎉 全部流程完成！");
   } catch (e) {
     log(`❌ 失败：${e.message}`);
     resultBox.innerHTML = `<p class="text-red-600">失败：${e.message}</p>`;
